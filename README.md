@@ -2,6 +2,7 @@
 
 Implementing https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-li_mu.pdf
 
+```
 distributed-model-training/
 │
 ├── server.py            # Parameter server node
@@ -14,3 +15,4 @@ distributed-model-training/
 ├── simulation.py        # Run experiments
 ├── config.py            # Hyperparameters
 └── utils.py             # Helper functions
+```
