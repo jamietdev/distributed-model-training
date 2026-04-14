@@ -10,7 +10,7 @@ class Worker:
             hash_ring,
             num_weights,
             learning_rate,
-            X_train_batch, # this worker's shard of training data, 784 rows
+            X_train_batch, # this worker's shard of training data, a subset of the 784 rows
             y_train_batch,
             current_iteration,
             servers

@@ -37,7 +37,7 @@ class ParameterServer:
         return {i: self.weightVals[i] for i in indices}
 
     def push_gradients(self, gradient_dict: dict[int, float], worker_id, iteration) -> None: 
-        # a worker calls this. "here aer my gradient updates for the weights this server owns"
+        # a worker calls this. "here are my gradient updates for the weights this server owns"
         if iteration != self.current_iteration:
             return
         for idx, grad in gradient_dict.items():
@@ -58,7 +58,7 @@ class ParameterServer:
             average_gradient = sum(grads) / len(grads)
             self.weightVals[weightIndex] -= self.learning_rate * average_gradient
         
-        # RESET for next iteration
+        # reset for next iteration
         self.gradient_store = {weightIdx: [] for weightIdx in self.weight_indices}
         self.workers_pushed_this_iter = 0
         self.current_iteration += 1
