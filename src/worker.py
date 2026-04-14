@@ -66,9 +66,15 @@ class Worker:
         return gradients_dict 
     
     def pull_weights(self):
-        # get list of servers and the weights they own
-        # pull weights from each server and store in local_weight
+        """
+        Pulls weights from each server and stores them in local_weights
         
+        First identify which servers own which weights by
+        using the weight_to_server_map. 
+        Then, it will pull the weights from
+        each server using the pull_weights method of the ParameterServer class.
+        Finally, it will store the pulled weights in local_weights.
+        """
         servers_and_their_weights = defaultdict(list)
         for weightIdx, server_id in self.weight_to_server_map.items():
             servers_and_their_weights[server_id].append(weightIdx)

@@ -74,7 +74,7 @@ def run_training(num_workers, num_weights, learning_rate):
             current_iteration=0,
             X_train_batch=shards[i][0],
             y_train_batch=shards[i][1],
-            servers=servers,   # 👈 VERY IMPORTANT
+            servers=servers,
         )
         workers.append(worker)
 

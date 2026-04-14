@@ -37,7 +37,13 @@ class ParameterServer:
         return {i: self.weightVals[i] for i in indices}
 
     def push_gradients(self, gradient_dict: dict[int, float], worker_id, iteration) -> None: 
-        # a worker calls this. "here are my gradient updates for the weights this server owns"
+        """
+        A worker calls this. "here are my gradient updates for the weights this server owns"
+        
+        If the iteration number provided does not match the current iteration, the call is ignored.
+        
+        Otherwise, the gradient updates are stored in the gradient store. Once all workers have pushed their gradients for this iteration, the server will average the gradients and apply the update to the weights.
+        """
         if iteration != self.current_iteration:
             return
         for idx, grad in gradient_dict.items():
@@ -50,6 +56,11 @@ class ParameterServer:
     
    
     def update_weights(self):
+        """
+        Called after all workers have pushed their gradients for this iteration.
+        Averages the gradients and applies the update to the weights.
+        Resets the gradient store and iteration number.
+        """
         self.workers_seen = set()
         for weightIndex in self.weight_indices:
             grads = self.gradient_store[weightIndex]
