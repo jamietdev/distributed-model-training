@@ -18,3 +18,6 @@ pip install -r requirements.txt
 
 To run training:
 python3 main.py
+
+TODOs:
+- Currently we have sychronous training implemented, we should run it with different hyperparameters like learning rate changes (potentially try cross validation) and record the performance

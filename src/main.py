@@ -36,7 +36,6 @@ def evaluate_global_model(weights, X_test, y_test):
     preds = (preds >= 0.5).astype(np.float32)
     return np.mean(preds == y_test)
 
-
 def run_training(num_workers, num_weights, learning_rate):
     # load dataset and shard data to workers
     X_train, y_train, X_test, y_test = load_mnist_data()
