@@ -7,12 +7,14 @@ distributed-model-training/
 │
 ├── server.py            # Parameter server node
 ├── worker.py            # Worker node
-├── hashing.py           # Consistent hashing
-├── model.py             # Logistic regression logic
-├── data.py              # MNIST loading + batching
-├── coordinator.py       # Orchestrates training loop
-├── fault_tolerance.py   # Checkpoint + recovery
-├── simulation.py        # Run experiments
+├── hash_ring.py         # Consistent hashing
+├── load_mnist.py        # MNIST loading + batching
 ├── config.py            # Hyperparameters
-└── utils.py             # Helper functions
-```
+└── main.py              # Runs the script
+
+Setup:
+source venv/bin/activate
+pip install -r requirements.txt
+
+To run training:
+python3 main.py
