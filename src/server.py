@@ -77,5 +77,13 @@ class ParameterServer:
     def get_iteration(self) -> int:
         return self.current_iteration
 
+    def add_checkpoint(self):
+        # optional: save current weights to disk or object store for fault tolerance
+        pass
+
+    def load_checkpoint(self):
+        # optional: load weights from disk or object store
+        pass
+
 
     

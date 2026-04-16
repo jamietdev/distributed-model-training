@@ -18,6 +18,7 @@ class HashRing:
             position = self.hash(f"{server_id}#v{i}")
             self.ring[position] = server_id
             bisect.insort(self.sorted_keys, position)
+
         self.servers.add(server_id) 
     
     # gets the server this weight idx is mapped to
@@ -63,5 +64,11 @@ class HashRing:
         return keys_by_server
 
     def remove_server(self, server_id: str) -> None:
+        for i in range(self.num_virtual_servers):
+            position = self.hash(f"{server_id}#v{i}")
+            del self.ring[position]
+            self.sorted_keys.remove(position)
+
+        self.servers.remove(server_id)
+
         return
-        # TODO implement this during fault tolerance section for simulating failures
