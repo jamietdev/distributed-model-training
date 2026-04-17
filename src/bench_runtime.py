@@ -1,6 +1,6 @@
 import time
 import statistics
-
+import matplotlib.pyplot as plt
 import numpy as np
 import ray
 
@@ -33,7 +33,7 @@ def summarize(samples, label):
         f"p50={p50*1000:7.2f}ms  p95={p95*1000:7.2f}ms  "
         f"throughput={throughput:6.1f} it/s"
     )
-    return {"mean": mean, "std": std, "p50": p50, "p95": p95}
+    return {"mean": mean, "std": std, "p50": p50, "p95": p95, "throughput": throughput}
 
 
 def run_one_trial(
@@ -93,51 +93,144 @@ def bench_baseline(X_train, y_train):
 
 
 def bench_scaling_workers(X_train, y_train):
-    """Hold servers fixed, vary workers. Expect: latency rises as each
-    server has to wait for more pushes before update_weights() fires."""
+    """Hold servers fixed, vary workers. Measures synchronous iteration latency
+    and global iteration throughput."""
     print("\n=== Scaling: num_workers (servers=2, replicas=2) ===")
+
+    results = []
     for nw in [1, 2, 4, 6, 8]:
         times = run_one_trial(
-            num_workers=nw, num_servers=2,
+            num_workers=nw,
+            num_servers=2,
             num_weights=NUM_WEIGHTS,
             num_iterations=TIMED_ITERS + WARMUP_ITERS,
-            num_replicas=2, learning_rate=LEARNING_RATE,
-            X_train=X_train, y_train=y_train,
+            num_replicas=2,
+            learning_rate=LEARNING_RATE,
+            X_train=X_train,
+            y_train=y_train,
         )
-        summarize(times, f"workers={nw}")
 
+        # skip runs that timed out or are incomplete
+        if len(times) < TIMED_ITERS:
+            print(f"Skipping workers={nw} due to timeout")
+            continue
+
+        stats = summarize(times, f"workers={nw}")
+        results.append((nw, stats["mean"], stats["throughput"]))
+
+    x = [r[0] for r in results]
+    latency_ms = [r[1] * 1000 for r in results]  
+    throughput = [r[2] for r in results]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+
+    ax1.plot(x, latency_ms, marker='o')
+    ax1.set_title("Iteration Latency")
+    ax1.set_xlabel("Number of Workers")
+    ax1.set_ylabel("Latency (ms)")
+    ax1.grid()
+    ax2.plot(x, throughput, marker='x')
+    ax2.set_title("Iteration Throughput")
+    ax2.set_xlabel("Number of Workers")
+    ax2.set_ylabel("Throughput (iterations/sec)")
+    ax2.grid()
+
+    plt.suptitle("Scaling Workers (Synchronous Training)")
+    plt.tight_layout()
+    plt.show()
 
 def bench_scaling_servers(X_train, y_train):
-    """Hold workers fixed, vary servers. With more servers, each worker
-    fans out more RPCs per pull/push — so this often gets *worse*, not
-    better, at this problem scale. Useful sanity check."""
+    """Hold workers fixed, vary servers. Measures synchronous iteration latency
+    and global iteration throughput."""
     print("\n=== Scaling: num_servers (workers=6, replicas=2) ===")
+
+    results = []
     for ns in [1, 2, 4, 8]:
         times = run_one_trial(
-            num_workers=NUM_WORKERS, num_servers=ns,
+            num_workers=NUM_WORKERS,
+            num_servers=ns,
             num_weights=NUM_WEIGHTS,
             num_iterations=TIMED_ITERS + WARMUP_ITERS,
-            num_replicas=NUM_REPLICAS, learning_rate=LEARNING_RATE,
-            X_train=X_train, y_train=y_train,
+            num_replicas=NUM_REPLICAS,
+            learning_rate=LEARNING_RATE,
+            X_train=X_train,
+            y_train=y_train,
         )
-        summarize(times, f"servers={ns}")
 
+        # Skip incomplete runs (timeouts)
+        if len(times) < TIMED_ITERS:
+            print(f"Skipping servers={ns} due to timeout")
+            continue
+
+        stats = summarize(times, f"servers={ns}")
+        results.append((ns, stats["mean"], stats["throughput"]))
+
+    x = [r[0] for r in results]
+    latency_ms = [r[1] * 1000 for r in results]
+    throughput = [r[2] for r in results]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+    ax1.plot(x, latency_ms, marker='o')
+    ax1.set_title("Iteration Latency")
+    ax1.set_xlabel("Number of Servers")
+    ax1.set_ylabel("Latency (ms)")
+    ax1.grid()
+    ax2.plot(x, throughput, marker='x')
+    ax2.set_title("Iteration Throughput")
+    ax2.set_xlabel("Number of Servers")
+    ax2.set_ylabel("Throughput (iterations/sec)")
+    ax2.grid()
+
+    plt.suptitle("Scaling Servers (Synchronous)")
+    plt.tight_layout()
+    plt.show()
 
 def bench_replicas(X_train, y_train):
-    """Vary virtual nodes per server. Per-iter latency should be largely
-    insensitive — the cost shows up at startup in build_weight_map and in
-    add/remove operations, not the steady-state hot path."""
+    """Vary virtual nodes per server. Measures effect on load balance and
+    steady-state iteration performance."""
     print("\n=== Virtual-node count (workers=6, servers=4) ===")
+
+    results = []
     for nr in [1, 2, 10, 50, 200]:
         times = run_one_trial(
-            num_workers=NUM_WORKERS, num_servers=4,
+            num_workers=NUM_WORKERS,
+            num_servers=4,
             num_weights=NUM_WEIGHTS,
             num_iterations=TIMED_ITERS + WARMUP_ITERS,
-            num_replicas=nr, learning_rate=LEARNING_RATE,
-            X_train=X_train, y_train=y_train,
+            num_replicas=nr,
+            learning_rate=LEARNING_RATE,
+            X_train=X_train,
+            y_train=y_train,
         )
-        summarize(times, f"replicas={nr}")
 
+        # skip incomplete runs
+        if len(times) < TIMED_ITERS:
+            print(f"Skipping replicas={nr} due to timeout")
+            continue
+
+        stats = summarize(times, f"replicas={nr}")
+        results.append((nr, stats["mean"], stats["throughput"]))
+
+    x = [r[0] for r in results]
+    latency_ms = [r[1] * 1000 for r in results]
+    throughput = [r[2] for r in results]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+
+    ax1.plot(x, latency_ms, marker='o')
+    ax1.set_title("Iteration Latency")
+    ax1.set_xlabel("Number of Virtual Nodes (Replicas)")
+    ax1.set_ylabel("Latency (ms)")
+    ax1.grid()
+    ax2.plot(x, throughput, marker='x')
+    ax2.set_title("Iteration Throughput")
+    ax2.set_xlabel("Number of Virtual Nodes (Replicas)")
+    ax2.set_ylabel("Throughput (iterations/sec)")
+    ax2.grid()
+
+    plt.suptitle("Effect of Consistent Hashing Replication")
+    plt.tight_layout()
+    plt.show()
 
 def bench_load_balance():
     """Not a runtime metric per se, but worth printing: how lopsided
