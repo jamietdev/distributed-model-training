@@ -15,6 +15,7 @@ distributed-model-training/
 Setup:
 source venv/bin/activate
 pip install -r requirements.txt
+cd src
 
 To run training:
 python3 main.py
