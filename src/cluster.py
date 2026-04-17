@@ -1,8 +1,10 @@
 import numpy as np
 import ray
 
+from config import BOUNDED_DELAY_STALENESS, SyncMode
 from hash_ring import HashRing
 from load_mnist import shard_data
+from progress_tracker import ProgressTracker
 from server import ParameterServer
 from worker import Worker
 
@@ -15,6 +17,8 @@ def build_cluster(
     learning_rate,
     X_train,
     y_train,
+    sync_mode: SyncMode = SyncMode.SEQUENTIAL_BSP,
+    bounded_delay_staleness: int = BOUNDED_DELAY_STALENESS,
 ):
     shards = shard_data(X_train, y_train, num_workers)
 
@@ -22,6 +26,11 @@ def build_cluster(
     server_ids = [f"server_{i}" for i in range(num_servers)]
     for sid in server_ids:
         ring.add_server(sid)
+
+    progress_tracker = None
+    if sync_mode == SyncMode.BOUNDED_DELAY:
+        worker_ids = [f"worker_{i}" for i in range(num_workers)]
+        progress_tracker = ProgressTracker.remote(worker_ids, bounded_delay_staleness)
 
     servers = {}
     for sid in server_ids:
@@ -35,6 +44,7 @@ def build_cluster(
             weightVals=wvals,
             current_iteration=0,
             num_expected_workers=num_workers,
+            sync_mode=sync_mode,
         )
 
     workers = []
@@ -48,14 +58,18 @@ def build_cluster(
             X_train_batch=shards[i][0],
             y_train_batch=shards[i][1],
             servers=servers,
+            sync_mode=sync_mode,
+            progress_tracker=progress_tracker,
         )
         workers.append(w)
 
-    return ring, servers, workers
+    return ring, servers, workers, progress_tracker
 
 
-def teardown_cluster(servers, workers):
+def teardown_cluster(servers, workers, progress_tracker=None):
     for w in workers:
         ray.kill(w)
     for s in servers.values():
         ray.kill(s)
+    if progress_tracker is not None:
+        ray.kill(progress_tracker)

@@ -7,7 +7,17 @@ import ray
 from cluster import build_cluster, teardown_cluster
 from hash_ring import HashRing
 from load_mnist import load_mnist_data
-from config import LEARNING_RATE, NUM_WEIGHTS, WARMUP_ITERS, TIMED_ITERS, ITER_TIMEOUT_S, NUM_WORKERS, NUM_SERVERS, NUM_REPLICAS
+from config import (
+    LEARNING_RATE,
+    NUM_WEIGHTS,
+    WARMUP_ITERS,
+    TIMED_ITERS,
+    ITER_TIMEOUT_S,
+    NUM_WORKERS,
+    NUM_SERVERS,
+    NUM_REPLICAS,
+    SyncMode,
+)
 
 def summarize(samples, label):
     s = sorted(samples)
@@ -36,8 +46,9 @@ def run_one_trial(
     X_train,
     y_train,
     warmup_iters=WARMUP_ITERS,
+    sync_mode: SyncMode = SyncMode.SEQUENTIAL_BSP,
 ):
-    _, servers, workers = build_cluster(
+    _, servers, workers, progress_tracker = build_cluster(
         num_workers=num_workers,
         num_servers=num_servers,
         num_weights=num_weights,
@@ -45,6 +56,7 @@ def run_one_trial(
         learning_rate=learning_rate,
         X_train=X_train,
         y_train=y_train,
+        sync_mode=sync_mode,
     )
 
     # timed loop
@@ -63,7 +75,7 @@ def run_one_trial(
             f"{ITER_TIMEOUT_S}s — likely the pull_weights busy-wait deadlock"
         )
     finally:
-        teardown_cluster(servers, workers)
+        teardown_cluster(servers, workers, progress_tracker)
 
     return iter_times[warmup_iters:]
 
@@ -102,7 +114,7 @@ def bench_scaling_servers(X_train, y_train):
     print("\n=== Scaling: num_servers (workers=6, replicas=2) ===")
     for ns in [1, 2, 4, 8]:
         times = run_one_trial(
-            num_workers=NUM_WORKERS, num_servers=NUM_SERVERS,
+            num_workers=NUM_WORKERS, num_servers=ns,
             num_weights=NUM_WEIGHTS,
             num_iterations=TIMED_ITERS + WARMUP_ITERS,
             num_replicas=NUM_REPLICAS, learning_rate=LEARNING_RATE,
@@ -118,7 +130,7 @@ def bench_replicas(X_train, y_train):
     print("\n=== Virtual-node count (workers=6, servers=4) ===")
     for nr in [1, 2, 10, 50, 200]:
         times = run_one_trial(
-            num_workers=N, num_servers=4,
+            num_workers=NUM_WORKERS, num_servers=4,
             num_weights=NUM_WEIGHTS,
             num_iterations=TIMED_ITERS + WARMUP_ITERS,
             num_replicas=nr, learning_rate=LEARNING_RATE,
