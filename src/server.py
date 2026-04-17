@@ -61,7 +61,7 @@ class ParameterServer:
         for idx, grad in gradient_dict.items():
             assert idx in self.gradient_store, f"Unexpected weight index {idx}"
             self.weightVals[idx] -= self.learning_rate * grad
-        self.current_iteration += 1
+        # self.current_iteration += 1
 
     def update_weights(self):
         self.workers_seen = set()

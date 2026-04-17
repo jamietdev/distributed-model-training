@@ -51,8 +51,7 @@ class Worker:
 
     def train_loop_async(self, num_steps: int):
         """Independent steps; servers apply gradients immediately (no BSP barrier)."""
-        for step in range(num_steps):
-            self.current_iteration = step
+        for _ in range(num_steps):
             self.pull_weights(wait_for_iteration=False)
             X_batch = self.X_train_batch
             y_batch = self.y_train_batch
@@ -89,16 +88,23 @@ class Worker:
         expected = (
             self.current_iteration if wait_for_iteration else None
         )
+        refs = []
+        server_ids = []
+        weight_lists = []
+
         for server_id, weight_indices in servers_and_their_weights.items():
-            weights_ref = self.servers[server_id].pull_weights.remote(
-                weight_indices, expected
+            refs.append(
+                self.servers[server_id].pull_weights.remote(weight_indices, expected)
             )
-            weights_dict: dict[int, float] = ray.get(weights_ref)
-            # store into local_weights
+            server_ids.append(server_id)
+            weight_lists.append(weight_indices)
+
+        results = ray.get(refs)
+
+        for weights_dict in results:
             for idx, val in weights_dict.items():
                 self.local_weights[idx] = val
-
-    
+            
     # tells server, here are gradients, please update your weights
     def push_gradients(self, gradients):
         # group gradients by server
@@ -110,7 +116,14 @@ class Worker:
             grads_by_server[server_id][idx] = grad
 
         # send to servers
+        refs = []
         for server_id, grad_dict in grads_by_server.items():
-            self.servers[server_id].push_gradients.remote(
-                grad_dict, self.worker_id, self.current_iteration
+            iteration = None if self.sync_mode == SyncMode.ASYNCHRONOUS else self.current_iteration
+            refs.append(
+                self.servers[server_id].push_gradients.remote(
+                    grad_dict, self.worker_id, iteration
+                )
             )
+
+        if self.sync_mode != SyncMode.ASYNCHRONOUS:
+            ray.get(refs)
