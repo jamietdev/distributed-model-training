@@ -21,4 +21,4 @@ To run training:
 python3 main.py
 
 TODOs:
-- Currently we have sychronous training implemented, we should run it with different hyperparameters like learning rate changes (potentially try cross validation) and record the performance
+- For pulls and pushes, in each iteration, each worker is sending gradients to each server. We could have the worker send all gradients in one rpc, and the server splits gradients internally. This could be another test to try 
