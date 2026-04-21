@@ -5,7 +5,7 @@ class HashRing:
     def __init__(self, num_weights, num_virtual_servers=2):
         self.num_virtual_servers = num_virtual_servers
         self.ring = {} # maps position on ring -> server id (which server lives there)
-        self.sorted_keys = [] # todo check
+        self.sorted_keys = []
         self.servers = set() 
         self.num_weights = num_weights
         # store position -> weights? 

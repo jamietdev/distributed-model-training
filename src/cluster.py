@@ -41,7 +41,7 @@ def build_cluster(
             weight_indices=owned,
             num_weights=num_weights,
             learning_rate=learning_rate,
-            weightVals=wvals,
+            weight_vals=wvals,
             current_iteration=0,
             num_expected_workers=num_workers,
             sync_mode=sync_mode,

@@ -8,6 +8,18 @@ import os
 
 from config import SyncMode, CHECKPOINT_DIR, CHECKPOINT_EVERY
 
+# dead server's actor is gone; need this to read its last checkpoint from disk to know updated values
+def read_checkpoint_file(server_id):
+    path = os.path.join(CHECKPOINT_DIR, f"checkpoint_{server_id}.json")
+    if not os.path.isfile(path):
+        return None
+    with open(path, "r") as f:
+        data = json.load(f)
+    return {
+        "iteration": data["iteration"],
+        "weights": {int(k): v for k, v in data["weights"].items()},
+    }
+
 @ray.remote
 class ParameterServer:
     def __init__(
@@ -16,19 +28,19 @@ class ParameterServer:
         weight_indices,
         num_weights,
         learning_rate,
-        weightVals,
+        weight_vals,
         current_iteration,
         num_expected_workers,
         sync_mode: SyncMode = SyncMode.SEQUENTIAL_BSP,
     ):
         self.server_id = server_id
-        self.weight_indices = weight_indices
+        self.weight_indices = list(weight_indices)
         self.num_weights = num_weights
         self.learning_rate = learning_rate
-        self.weightVals = weightVals
+        self.weight_vals = dict(weight_vals)
         self.current_iteration = current_iteration
         self.workers_pushed_this_iter = 0
-        self.gradient_store = {k: [] for k in weight_indices}
+        self.gradient_store = {k: [] for k in self.weight_indices}
         self.num_expected_workers = num_expected_workers
         self.workers_seen = set()
         self.sync_mode = sync_mode
@@ -38,7 +50,7 @@ class ParameterServer:
         if not self.async_updates and expected_iteration is not None:
             while self.current_iteration < expected_iteration:
                 time.sleep(0.001)
-        return {i: self.weightVals[i] for i in indices}
+        return {i: self.weight_vals[i] for i in indices}
 
     def push_gradients(
         self, gradient_dict: dict[int, float], worker_id, iteration
@@ -60,7 +72,7 @@ class ParameterServer:
     def _apply_gradients_immediate(self, gradient_dict: dict[int, float]) -> None:
         for idx, grad in gradient_dict.items():
             assert idx in self.gradient_store, f"Unexpected weight index {idx}"
-            self.weightVals[idx] -= self.learning_rate * grad
+            self.weight_vals[idx] -= self.learning_rate * grad
         # self.current_iteration += 1
 
     def update_weights(self):
@@ -70,7 +82,7 @@ class ParameterServer:
             if len(grads) == 0:
                 continue
             average_gradient = sum(grads) / len(grads)
-            self.weightVals[weightIndex] -= self.learning_rate * average_gradient
+            self.weight_vals[weightIndex] -= self.learning_rate * average_gradient
 
         self.gradient_store = {weightIdx: [] for weightIdx in self.weight_indices}
         self.workers_pushed_this_iter = 0
@@ -78,6 +90,17 @@ class ParameterServer:
 
         if CHECKPOINT_EVERY > 0 and self.current_iteration % CHECKPOINT_EVERY == 0:
             self.add_checkpoint()
+    
+    # absorb the additional weights inherited from a failed server
+    def absorb_weights(self, new_weight_dict: dict[int, float]) -> int:
+        for idx, val in new_weight_dict.items():
+            assert idx not in self.gradient_store, (
+                f"{self.server_id} already owns weight {idx}; cannot absorb"
+            )
+            self.weight_indices.append(idx)
+            self.weight_vals[idx] = val
+            self.gradient_store[idx] = []
+        return len(self.weight_indices)
 
     def get_iteration(self) -> int:
         return self.current_iteration
@@ -85,15 +108,18 @@ class ParameterServer:
     def set_iteration(self, iteration: int) -> None:
         self.current_iteration = iteration
 
+    def get_weight_indices(self) -> list:
+        return list(self.weight_indices)
+
     def _checkpoint_path(self) -> str:
         return os.path.join(CHECKPOINT_DIR, f"checkpoint_{self.server_id}.json")
 
     def add_checkpoint(self):
         os.makedirs(CHECKPOINT_DIR, exist_ok=True)
         checkpoint_data = {
-            "iteration": self.current_iteration,
+            "iteration": int(self.current_iteration),
             "weights": {
-                str(i): self.weightVals[i] for i in self.weight_indices
+                str(i): float(self.weight_vals[i]) for i in self.weight_indices
             },
         }
         with open(self._checkpoint_path(), "w") as f:
@@ -115,6 +141,6 @@ class ParameterServer:
             f"{len(loaded_weights)} indices, server owns "
             f"{len(self.weight_indices)}."
         )
-        self.weightVals = loaded_weights
+        self.weight_vals = loaded_weights
         self.current_iteration = data["iteration"]
         return self.current_iteration
