@@ -23,3 +23,7 @@ BOUNDED_DELAY_STALENESS = 2  # max steps ahead of slowest worker (only for BOUND
 WARMUP_ITERS = 3  # discarded; first few iters are dominated by JIT/RPC setup
 TIMED_ITERS = 30  # samples actually used for stats
 ITER_TIMEOUT_S = 10.0
+
+# for fault tolerance
+CHECKPOINT_DIR = "checkpoints"
+CHECKPOINT_EVERY = 5

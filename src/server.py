@@ -2,11 +2,11 @@
 # receives gradient updates, applies them, serve current values on request
 
 import time
-
+import json
 import ray
+import os
 
-from config import SyncMode
-
+from config import SyncMode, CHECKPOINT_DIR, CHECKPOINT_EVERY
 
 @ray.remote
 class ParameterServer:
@@ -76,11 +76,45 @@ class ParameterServer:
         self.workers_pushed_this_iter = 0
         self.current_iteration += 1
 
+        if CHECKPOINT_EVERY > 0 and self.current_iteration % CHECKPOINT_EVERY == 0:
+            self.add_checkpoint()
+
     def get_iteration(self) -> int:
         return self.current_iteration
 
+    def set_iteration(self, iteration: int) -> None:
+        self.current_iteration = iteration
+
+    def _checkpoint_path(self) -> str:
+        return os.path.join(CHECKPOINT_DIR, f"checkpoint_{self.server_id}.json")
+
     def add_checkpoint(self):
-        pass
+        os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+        checkpoint_data = {
+            "iteration": self.current_iteration,
+            "weights": {
+                str(i): self.weightVals[i] for i in self.weight_indices
+            },
+        }
+        with open(self._checkpoint_path(), "w") as f:
+            json.dump(checkpoint_data, f)
 
     def load_checkpoint(self):
-        pass
+        path = self._checkpoint_path()
+        if not os.path.isfile(path):
+            return None
+        with open(path, "r") as f:
+            data = json.load(f)
+ 
+        loaded_weights = {int(k): v for k, v in data["weights"].items()}
+ 
+        # Fail if ring assignment changed under us
+        assert set(loaded_weights.keys()) == set(self.weight_indices), (
+            f"Checkpoint indices don't match current shard assignment for "
+            f"{self.server_id}. Checkpoint has "
+            f"{len(loaded_weights)} indices, server owns "
+            f"{len(self.weight_indices)}."
+        )
+        self.weightVals = loaded_weights
+        self.current_iteration = data["iteration"]
+        return self.current_iteration

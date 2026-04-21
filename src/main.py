@@ -2,6 +2,7 @@ from collections import defaultdict
 
 import ray
 import numpy as np
+import os
 
 from cluster import build_cluster, teardown_cluster
 from config import (
@@ -14,12 +15,9 @@ from config import (
     NUM_WORKERS,
     SYNC_MODE,
     SyncMode,
+    CHECKPOINT_DIR,
 )
 from load_mnist import load_mnist_data
-
-ray.shutdown()
-ray.init()
-
 
 def gather_full_weights(servers, hash_ring, num_weights):
     full_weights = np.zeros(num_weights)
@@ -43,9 +41,17 @@ def evaluate_global_model(weights, X_test, y_test):
     preds = (preds >= 0.5).astype(np.float32)
     return np.mean(preds == y_test)
 
+def clear_checkpoints():
+       if not os.path.isdir(CHECKPOINT_DIR):
+           os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+           return
+       for f in os.listdir(CHECKPOINT_DIR):
+           os.remove(os.path.join(CHECKPOINT_DIR, f))
+
 
 def run_training(num_workers, num_weights, learning_rate, sync_mode=SYNC_MODE):
     X_train, y_train, X_test, y_test = load_mnist_data()
+    clear_checkpoints()
 
     ring, servers, workers, progress_tracker = build_cluster(
         num_workers=num_workers,
@@ -100,4 +106,6 @@ def run_training(num_workers, num_weights, learning_rate, sync_mode=SYNC_MODE):
 
 
 if __name__ == "__main__":
+    ray.shutdown()
+    ray.init()
     run_training(NUM_WORKERS, NUM_WEIGHTS, LEARNING_RATE, sync_mode=SYNC_MODE)
