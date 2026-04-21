@@ -1,6 +1,10 @@
 # distributed-model-training
 
-Implementing https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-li_mu.pdf
+Implementing https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-li_mu.pdf.
+
+More specifically, our project focuses on using the MNIST dataset along with a logistic regression model -- with the task of binary classification of whether an image of a number in the dataset is even or odd. We use 785 weights (784 pixels in each image + 1 bias) as we flatten the images to vectors in data pre-processing. The parameter servers exist to store certain subsets of weights, as determined by consistent hashing via a hash ring, while communicating with worker nodes, that compute the gradients. The parameter servers store the weights and aggregate the computed gradients across all the worker nodes, which are assigned different subsets of training data. The parameter servers then push the updated weights back to all of the worker nodes. This push and pull process then leads to our final weights, which can then be used for model predictions via running the main.py file. 
+
+We then implemented a variety of experiments to test different aspects of our distributed system, such as different modes of synchronization (such as bounded delays vs. eventual vs. sequential).
 
 ```
 distributed-model-training/
@@ -19,6 +23,3 @@ cd src
 
 To run training:
 python3 main.py
-
-TODOs:
-- For pulls and pushes, in each iteration, each worker is sending gradients to each server. We could have the worker send all gradients in one rpc, and the server splits gradients internally. This could be another test to try 
