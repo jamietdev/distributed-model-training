@@ -44,7 +44,20 @@ def evaluate_global_model(weights, X_test, y_test):
     return np.mean(preds == y_test)
 
 
-def run_training(num_workers, num_weights, learning_rate, sync_mode=SYNC_MODE):
+def run_training(
+    num_workers,
+    num_weights,
+    learning_rate,
+    sync_mode=SYNC_MODE,
+    bounded_delay_staleness: int | None = None,
+    num_iterations: int | None = None,
+    eval_every: int = 10,
+):
+    if bounded_delay_staleness is None:
+        bounded_delay_staleness = BOUNDED_DELAY_STALENESS
+    if num_iterations is None:
+        num_iterations = NUM_ITERATIONS
+
     X_train, y_train, X_test, y_test = load_mnist_data()
 
     ring, servers, workers, progress_tracker = build_cluster(
@@ -56,11 +69,10 @@ def run_training(num_workers, num_weights, learning_rate, sync_mode=SYNC_MODE):
         X_train=X_train,
         y_train=y_train,
         sync_mode=sync_mode,
-        bounded_delay_staleness=BOUNDED_DELAY_STALENESS,
+        bounded_delay_staleness=bounded_delay_staleness,
     )
 
     training_history = []
-    eval_every = 10
 
     try:
         if sync_mode == SyncMode.ASYNCHRONOUS:
@@ -68,7 +80,7 @@ def run_training(num_workers, num_weights, learning_rate, sync_mode=SYNC_MODE):
             acc = evaluate_global_model(weights, X_test, y_test)
             print(f"Before training (async): Accuracy = {acc:.4f}")
 
-            remaining = NUM_ITERATIONS
+            remaining = num_iterations
             total_steps = 0
             while remaining > 0:
                 chunk = min(eval_every, remaining)
@@ -82,16 +94,48 @@ def run_training(num_workers, num_weights, learning_rate, sync_mode=SYNC_MODE):
                     {"steps_per_worker": total_steps, "accuracy": float(acc)}
                 )
 
+        elif sync_mode == SyncMode.BOUNDED_DELAY:
+            weights = gather_full_weights(servers, ring, num_weights)
+            acc = evaluate_global_model(weights, X_test, y_test)
+            print(f"Before training (bounded_delay): Accuracy = {acc:.4f}")
+            training_history.append(
+                {"iteration": 0, "accuracy": float(acc)},
+            )
+            remaining = num_iterations
+            total_steps = 0
+            while remaining > 0:
+                chunk = min(eval_every, remaining)
+                ray.get([w.run_bounded_session.remote(chunk) for w in workers])
+                total_steps += chunk
+                remaining -= chunk
+                weights = gather_full_weights(servers, ring, num_weights)
+                acc = evaluate_global_model(weights, X_test, y_test)
+                print(
+                    f"After {total_steps} steps per worker (bounded_delay): Accuracy = {acc:.4f}"
+                )
+                training_history.append(
+                    {
+                        "iteration": int(total_steps),
+                        "accuracy": float(acc),
+                    }
+                )
+
         else:
-            for iteration in range(NUM_ITERATIONS):
+            for iteration in range(num_iterations):
                 futures = [worker.run_iteration.remote(iteration) for worker in workers]
                 ray.get(futures)
                 if iteration % eval_every == 0:
                     weights = gather_full_weights(servers, ring, num_weights)
                     acc = evaluate_global_model(weights, X_test, y_test)
-                    label = "BSP" if sync_mode == SyncMode.SEQUENTIAL_BSP else "bounded_delay"
-                    print(f"Iteration {iteration} ({label}): Accuracy = {acc:.4f}")
-                training_history.append({"iteration": iteration})
+                    print(
+                        f"Iteration {iteration} (sequential BSP): Accuracy = {acc:.4f}"
+                    )
+                    training_history.append(
+                        {
+                            "iteration": int(iteration),
+                            "accuracy": float(acc),
+                        }
+                    )
 
     finally:
         teardown_cluster(servers, workers, progress_tracker)

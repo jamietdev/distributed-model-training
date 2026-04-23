@@ -33,9 +33,16 @@ class ParameterServer:
         self.workers_seen = set()
         self.sync_mode = sync_mode
         self.async_updates = sync_mode == SyncMode.ASYNCHRONOUS
+        self.bounded_delay = sync_mode == SyncMode.BOUNDED_DELAY
 
     def pull_weights(self, indices, expected_iteration=None) -> dict[int, float]:
-        if not self.async_updates and expected_iteration is not None:
+        # Stale / latest: async and bounded delay do not block until a global BSP clock.
+        wait_bsp = (
+            not self.async_updates
+            and not self.bounded_delay
+            and expected_iteration is not None
+        )
+        if wait_bsp:
             while self.current_iteration < expected_iteration:
                 time.sleep(0.001)
         return {i: self.weightVals[i] for i in indices}
@@ -45,6 +52,16 @@ class ParameterServer:
     ) -> None:
         if self.async_updates:
             self._apply_gradients_immediate(gradient_dict)
+            return
+
+        if self.bounded_delay:
+            # Middle ground: one partial SGD step per push, scaled 1/N vs BSP (average of N).
+            for idx, grad in gradient_dict.items():
+                assert idx in self.gradient_store, f"Unexpected weight index {idx}"
+                self.weightVals[idx] -= (
+                    (self.learning_rate / self.num_expected_workers) * grad
+                )
+            self.current_iteration += 1
             return
 
         if iteration != self.current_iteration:

@@ -1,0 +1,41 @@
+run_label,mode,staleness,iteration,accuracy
+s=1,bounded_delay,1,0,0.6859
+s=1,bounded_delay,1,5,0.822
+s=1,bounded_delay,1,10,0.8321
+s=1,bounded_delay,1,15,0.8377
+s=1,bounded_delay,1,20,0.8416
+s=1,bounded_delay,1,25,0.8459
+s=1,bounded_delay,1,30,0.849
+s=1,bounded_delay,1,35,0.8517
+s=2,bounded_delay,2,0,0.6859
+s=2,bounded_delay,2,5,0.822
+s=2,bounded_delay,2,10,0.8321
+s=2,bounded_delay,2,15,0.8377
+s=2,bounded_delay,2,20,0.8416
+s=2,bounded_delay,2,25,0.8459
+s=2,bounded_delay,2,30,0.849
+s=2,bounded_delay,2,35,0.8517
+s=5,bounded_delay,5,0,0.6859
+s=5,bounded_delay,5,5,0.822
+s=5,bounded_delay,5,10,0.8321
+s=5,bounded_delay,5,15,0.8377
+s=5,bounded_delay,5,20,0.8416
+s=5,bounded_delay,5,25,0.8459
+s=5,bounded_delay,5,30,0.849
+s=5,bounded_delay,5,35,0.8517
+s=8,bounded_delay,8,0,0.6859
+s=8,bounded_delay,8,5,0.822
+s=8,bounded_delay,8,10,0.8321
+s=8,bounded_delay,8,15,0.8377
+s=8,bounded_delay,8,20,0.8416
+s=8,bounded_delay,8,25,0.8459
+s=8,bounded_delay,8,30,0.849
+s=8,bounded_delay,8,35,0.8517
+sequential BSP,sequential_bsp,,0,0.6859
+sequential BSP,sequential_bsp,,5,0.822
+sequential BSP,sequential_bsp,,10,0.8321
+sequential BSP,sequential_bsp,,15,0.8377
+sequential BSP,sequential_bsp,,20,0.8416
+sequential BSP,sequential_bsp,,25,0.8459
+sequential BSP,sequential_bsp,,30,0.849
+sequential BSP,sequential_bsp,,35,0.8517
