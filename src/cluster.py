@@ -1,13 +1,13 @@
 import numpy as np
 import ray
 
-from config import BOUNDED_DELAY_STALENESS, SyncMode
+import random
+from config import BOUNDED_DELAY_STALENESS, SyncMode, SEED
 from hash_ring import HashRing
 from load_mnist import shard_data
 from progress_tracker import ProgressTracker
 from server import ParameterServer
 from worker import Worker
-
 
 def build_cluster(
     num_workers,
@@ -32,10 +32,11 @@ def build_cluster(
         worker_ids = [f"worker_{i}" for i in range(num_workers)]
         progress_tracker = ProgressTracker.remote(worker_ids, bounded_delay_staleness)
 
+    random.seed(SEED)
     servers = {}
     for sid in server_ids:
         owned = ring.get_weightIdxs_for_specific_server(sid)
-        wvals = {k: float(np.random.randn() * 0.01) for k in owned}
+        wvals = {k: float(random.uniform(-0.1, 0.1)) for k in owned}
         servers[sid] = ParameterServer.remote(
             server_id=sid,
             weight_indices=owned,
