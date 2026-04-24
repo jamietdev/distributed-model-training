@@ -32,7 +32,7 @@ class Worker:
         self.sync_mode = sync_mode
         self.progress_tracker = progress_tracker
         self.local_weights = np.zeros(self.num_weights, dtype=np.float32)
-        self.weight_to_server_map = hash_ring.build_weight_map(num_weights)
+        self.weight_to_server_map = hash_ring.build_weight_map()
 
     def run_iteration(self, iteration_num: int):
         self.current_iteration = iteration_num
@@ -78,7 +78,7 @@ class Worker:
     # needed for resharding
     def refresh_weight_map(self, new_ring):
         self.hash_ring = new_ring
-        self.weight_to_server_map = new_ring.build_weight_map(self.num_weights)
+        self.weight_to_server_map = new_ring.build_weight_map()
     
     # deleting reference to a dead server
     def remove_server_handle(self, server_id):
@@ -91,8 +91,8 @@ class Worker:
         """
 
         servers_and_their_weights = defaultdict(list)
-        for weightIdx, server_id in self.weight_to_server_map.items():
-            servers_and_their_weights[server_id].append(weightIdx)
+        for weight_index, server_id in self.weight_to_server_map.items():
+            servers_and_their_weights[server_id].append(weight_index)
 
         expected = (
             self.current_iteration if wait_for_iteration else None
@@ -119,7 +119,7 @@ class Worker:
         # group gradients by server
         grads_by_server = {}
         for idx, grad in gradients.items():
-            server_id = self.hash_ring.get_server(idx)
+            server_id = self.weight_to_server_map[idx]
             if server_id not in grads_by_server:
                 grads_by_server[server_id] = {}
             grads_by_server[server_id][idx] = grad

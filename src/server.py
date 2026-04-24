@@ -9,6 +9,7 @@ import os
 from config import SyncMode, CHECKPOINT_DIR, CHECKPOINT_EVERY
 
 # dead server's actor is gone; need this to read its last checkpoint from disk to know updated values
+# need this here b/c of ray flag
 def read_checkpoint_file(server_id):
     path = os.path.join(CHECKPOINT_DIR, f"checkpoint_{server_id}.json")
     if not os.path.isfile(path):
@@ -39,7 +40,6 @@ class ParameterServer:
         self.learning_rate = learning_rate
         self.weight_vals = dict(weight_vals)
         self.current_iteration = current_iteration
-        self.workers_pushed_this_iter = 0
         self.gradient_store = {k: [] for k in self.weight_indices}
         self.num_expected_workers = num_expected_workers
         self.workers_seen = set()
@@ -77,15 +77,14 @@ class ParameterServer:
 
     def update_weights(self):
         self.workers_seen = set()
-        for weightIndex in self.weight_indices:
-            grads = self.gradient_store[weightIndex]
+        for weight_index in self.weight_indices:
+            grads = self.gradient_store[weight_index]
             if len(grads) == 0:
                 continue
             average_gradient = sum(grads) / len(grads)
-            self.weight_vals[weightIndex] -= self.learning_rate * average_gradient
+            self.weight_vals[weight_index] -= self.learning_rate * average_gradient
 
-        self.gradient_store = {weightIdx: [] for weightIdx in self.weight_indices}
-        self.workers_pushed_this_iter = 0
+        self.gradient_store = {weight_index: [] for weight_index in self.weight_indices}
         self.current_iteration += 1
 
         if CHECKPOINT_EVERY > 0 and self.current_iteration % CHECKPOINT_EVERY == 0:

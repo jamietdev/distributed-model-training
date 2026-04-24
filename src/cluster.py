@@ -1,7 +1,6 @@
-import numpy as np
 import ray
-
 import random
+
 from config import BOUNDED_DELAY_STALENESS, SyncMode, SEED
 from hash_ring import HashRing
 from load_mnist import shard_data
@@ -32,11 +31,11 @@ def build_cluster(
         worker_ids = [f"worker_{i}" for i in range(num_workers)]
         progress_tracker = ProgressTracker.remote(worker_ids, bounded_delay_staleness)
 
-    random.seed(SEED)
+    rng = random.Random(SEED)
     servers = {}
     for sid in server_ids:
-        owned = ring.get_weightIdxs_for_specific_server(sid)
-        wvals = {k: float(random.uniform(-0.1, 0.1)) for k in owned}
+        owned = ring.indices_for_server(sid)
+        wvals = {k: float(rng.uniform(-0.1, 0.1)) for k in owned}
         servers[sid] = ParameterServer.remote(
             server_id=sid,
             weight_indices=owned,

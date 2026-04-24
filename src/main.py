@@ -90,8 +90,7 @@ def run_training(num_workers, num_weights, learning_rate, sync_mode=SYNC_MODE):
 
         else:
             for iteration in range(NUM_ITERATIONS):
-                futures = [worker.run_iteration.remote(iteration) for worker in workers]
-                ray.get(futures)
+                ray.get([worker.run_iteration.remote(iteration) for worker in workers])
                 if iteration % eval_every == 0:
                     weights = gather_full_weights(servers, ring, num_weights)
                     acc = evaluate_global_model(weights, X_test, y_test)
