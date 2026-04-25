@@ -23,6 +23,7 @@ python3 main.py
 # WRITEUP
 ### Project Overview
 Implementing https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-li_mu.pdf.
+
 We implemented the distributed parameter server architecture from Li et al. (OSDI 2014) to train a logistic regression model on MNIST for binary even/odd classification. The model uses 785 weights (784 pixels + 1 bias). Parameter servers store weight shards partitioned via consistent hashing, while worker nodes compute gradients over disjoint data shards. Servers push updated weights back to workers after each round.
 
 Features from the paper we implemented:
