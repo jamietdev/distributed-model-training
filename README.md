@@ -108,3 +108,6 @@ The most notable result is that the checkpoint strategy fails if a server dies a
 
 For later failure points (60, 80, 100), both strategies recover in very similar time — roughly 0.15 to 0.21 seconds. The reason they are comparable in our setup is that our checkpoint files are very small (they contain only a JSON-serialized subset of weights, typically a few kilobytes), so the “disk” read is fast. In a production deployment with billions of weight parameters, the checkpoint file would be gigabytes, and disk I/O would dominate recovery time.
 
+## Extensions
+- Automatic failover via leader election when a leader server fails
+- Automatic failure detection via heartbeats
