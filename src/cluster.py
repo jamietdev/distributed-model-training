@@ -1,12 +1,32 @@
 import ray
 import random
-
-from config import BOUNDED_DELAY_STALENESS, SyncMode, SEED
+from config import BOUNDED_DELAY_STALENESS, RECOVERY_MODE, SyncMode, SEED, CHAIN_REPLICAS
 from hash_ring import HashRing
 from load_mnist import shard_data
 from progress_tracker import ProgressTracker
 from server import ParameterServer
 from worker import Worker
+
+def get_ring_ordered_servers(ring, servers):
+    """Returns a deterministic ordering of server IDs based on their positions
+    on the consistent hash ring."""
+
+    return sorted(
+        servers.keys(),
+        key=lambda sid: min(
+            ring.hash(f"{sid}#v{i}")
+            for i in range(ring.num_virtual_servers)
+        )
+    )
+
+def assign_chain_replicas(ring, servers, k): # we replicate the weights on server_i to the next k servers in ring order
+    ordered_servers = get_ring_ordered_servers(ring, servers)
+    n = len(ordered_servers)
+    for i, server_id in enumerate(ordered_servers):
+        replica_ids = [ordered_servers[(i + j + 1) % n] for j in range(min(k, n - 1))]
+        replicas = [(s, servers[s]) for s in replica_ids]
+
+        ray.get(servers[server_id].set_replicas.remote(replicas))
 
 def build_cluster(
     num_workers,
@@ -46,6 +66,9 @@ def build_cluster(
             num_expected_workers=num_workers,
             sync_mode=sync_mode,
         )
+
+    if RECOVERY_MODE == "chain":
+        assign_chain_replicas(ring, servers, CHAIN_REPLICAS)
 
     workers = []
     for i in range(num_workers):

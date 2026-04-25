@@ -25,6 +25,8 @@ TIMED_ITERS = 30  # samples actually used for stats
 ITER_TIMEOUT_S = 10.0
 
 # for fault tolerance
+RECOVERY_MODE = "chain" # or "chain"
+CHAIN_REPLICAS = 2
 CHECKPOINT_DIR = "checkpoints"
 CHECKPOINT_EVERY = 50
 

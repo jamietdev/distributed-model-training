@@ -35,6 +35,7 @@ class Worker:
         self.weight_to_server_map = hash_ring.build_weight_map()
 
     def run_iteration(self, iteration_num: int):
+        print(f"[{self.worker_id}] iter={self.current_iteration}")
         self.current_iteration = iteration_num
         if self.progress_tracker is not None:
             ray.get(self.progress_tracker.wait_until_can_advance.remote(self.worker_id))
@@ -75,15 +76,6 @@ class Worker:
             gradients_dict[i] = gradients[i]
         return gradients_dict
 
-    # needed for resharding
-    def refresh_weight_map(self, new_ring):
-        self.hash_ring = new_ring
-        self.weight_to_server_map = new_ring.build_weight_map()
-    
-    # deleting reference to a dead server
-    def remove_server_handle(self, server_id):
-        if server_id in self.servers:
-            del self.servers[server_id]
 
     def pull_weights(self, wait_for_iteration: bool = True):
         """
@@ -136,3 +128,12 @@ class Worker:
 
         if self.sync_mode != SyncMode.ASYNCHRONOUS:
             ray.get(refs)
+    
+    def reconfigure(self, ring, servers):
+        self.hash_ring = ring
+        self.servers = dict(servers)
+        # rebuild weight map
+        self.weight_to_server_map = ring.build_weight_map(self.num_weights)
+
+    def set_iteration(self, iteration):
+        self.current_iteration = iteration

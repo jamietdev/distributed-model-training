@@ -6,9 +6,12 @@
   test_live_reshard   — kill a server MID-TRAINING, reshard, resume, verify accuracy continues to improve.
 """
 import os
-
+import sys
+import time
 import ray
-
+import matplotlib.pyplot as plt
+from typing import Dict
+import shutil
 from cluster import build_cluster, teardown_cluster
 from config import (
     CHECKPOINT_EVERY,
@@ -19,10 +22,11 @@ from config import (
     NUM_SERVERS,
     NUM_REPLICAS,
 )
+import config
 from load_mnist import load_mnist_data
 from main import clear_checkpoints, evaluate_global_model, gather_full_weights
 from recovery import reshard_after_failure
-
+RUN_MODE = "experiment"
 
 def _run_iterations(workers, start, end):
     for it in range(start, end):
@@ -56,8 +60,8 @@ def test_static_reshard():
         _run_iterations(workers, 0, kill_after)
 
         victim_id = "server_0"
-        victim_indices = ring.indices_for_server(victim_id)
-        pre_kill_orphans = ray.get(
+        victim_indices = ring.get_weightIdxs_for_specific_server(victim_id)
+        pre_kill_orphans: Dict[int, float] = ray.get(
             servers[victim_id].pull_weights.remote(victim_indices)
         )
         print(f"  killing {victim_id} with {len(victim_indices)} weights "
@@ -72,6 +76,7 @@ def test_static_reshard():
             workers=workers,
         )
         print(f"  reshard info: {info}")
+
 
         # verify thatevery orphaned weight ended up on exactly one survivor, and its value matches the checkpoint
         for orphan_idx, expected_val in pre_kill_orphans.items():
@@ -107,8 +112,10 @@ def test_static_reshard():
         teardown_cluster(servers, workers, tracker)
 
 
-def test_live_reshard():
-    print("\n=== Live mid-training reshard ===")
+def run_live_reshard_trial(kill_after):
+    if os.path.exists(config.CHECKPOINT_DIR):
+        shutil.rmtree(config.CHECKPOINT_DIR)
+    os.makedirs(config.CHECKPOINT_DIR, exist_ok=True)
     clear_checkpoints()
     X_train, y_train, X_test, y_test = load_mnist_data()
 
@@ -124,14 +131,16 @@ def test_live_reshard():
     )
 
     try:
-        kill_after = _kill_iteration_multiple_of_checkpoint(30)
+        print(f"\n=== Trial: kill_after={kill_after} ===")    
         _run_iterations(workers, 0, kill_after)
 
-        pre_kill_weights = gather_full_weights(servers, ring, NUM_WEIGHTS)
-        pre_kill_acc = evaluate_global_model(pre_kill_weights, X_test, y_test)
-        print(f"  pre-kill accuracy (iter {kill_after}): {pre_kill_acc:.4f}")
+        pre_weights = gather_full_weights(servers, ring, NUM_WEIGHTS)
+        pre_kill_acc = evaluate_global_model(pre_weights, X_test, y_test)
 
         victim_id = "server_1"
+
+        # start timing
+        start = time.time()
         ray.kill(servers[victim_id])
         reshard_after_failure(
             dead_server_id=victim_id,
@@ -139,29 +148,81 @@ def test_live_reshard():
             servers=servers,
             workers=workers,
         )
+        ray.get([w.run_iteration.remote(kill_after) for w in workers])
+        recovery_time = time.time() - start
 
         # fewer servers now, but workers have the new ring.
-        _run_iterations(workers, kill_after, kill_after + 30)
-
         final_weights = gather_full_weights(servers, ring, NUM_WEIGHTS)
         final_acc = evaluate_global_model(final_weights, X_test, y_test)
-        print(f"  post-reshard accuracy "
-              f"(iter {kill_after + 30}): {final_acc:.4f}")
 
-        assert final_acc >= pre_kill_acc - 0.05, (
-            f"training regressed significantly: "
-            f"pre={pre_kill_acc:.4f}, post={final_acc:.4f}"
-        )
-        print("  PASS")
+        return {
+            "kill_after": kill_after,
+            "pre_acc": pre_kill_acc,
+            "final_acc": final_acc,
+            "recovery_time": recovery_time,
+        } 
     finally:
         teardown_cluster(servers, workers, tracker)
+
+def run_experiments():
+    print(f"\n[MODE] {config.RECOVERY_MODE}")
+
+    kill_points = [40, 60, 80, 100]
+    results = []
+    for k in kill_points:
+        try:
+            res = run_live_reshard_trial(k)
+            results.append(res)
+        except Exception as e:
+            print(f"Failed at k={k}: {e}")
+            results.append({
+                "kill_after": k,
+                "recovery_time": None
+            })
+    return results
+
+def plot_results(all_results):
+    plt.figure()
+
+    for mode, results in all_results.items():
+        kill = []
+        recovery = []
+        for r in results:
+            if r["recovery_time"] is not None:
+                kill.append(r["kill_after"])
+                recovery.append(r["recovery_time"])
+            else:
+                plt.scatter(r["kill_after"], 0, marker="x", color="red")
+
+        plt.scatter(kill, recovery, marker="o", label=mode)
+
+    plt.title("Recovery Time Comparison")
+    plt.xlabel("Failure Iteration")
+    plt.ylabel("Recovery Time (seconds)")
+    plt.legend()
+
+    os.makedirs("fault_tolerance", exist_ok=True)
+    plt.savefig("fault_tolerance/recovery_comparison.png")
+    plt.close()
 
 
 if __name__ == "__main__":
     ray.init(ignore_reinit_error=True, log_to_driver=False)
     try:
-        test_static_reshard()
-        test_live_reshard()
-        print("\nAll fault tolerance tests passed.")
+        if RUN_MODE == "test":
+            test_static_reshard()
+            print("\nStatic reshard tests passed.")
+
+        elif RUN_MODE == "experiment":
+            all_results = {}
+
+            for mode in ["chain", "checkpoint"]:
+                config.RECOVERY_MODE = mode
+                results = run_experiments()
+                all_results[mode] = results
+
+            plot_results(all_results)
+        
+
     finally:
         ray.shutdown()

@@ -5,12 +5,13 @@ import time
 import json
 import ray
 import os
-
-from config import SyncMode, CHECKPOINT_DIR, CHECKPOINT_EVERY
+import config
+from config import SyncMode, CHECKPOINT_DIR
 
 # dead server's actor is gone; need this to read its last checkpoint from disk to know updated values
 # need this here b/c of ray flag
 def read_checkpoint_file(server_id):
+
     path = os.path.join(CHECKPOINT_DIR, f"checkpoint_{server_id}.json")
     if not os.path.isfile(path):
         return None
@@ -45,8 +46,12 @@ class ParameterServer:
         self.workers_seen = set()
         self.sync_mode = sync_mode
         self.async_updates = sync_mode == SyncMode.ASYNCHRONOUS
+        self.replicas = [] # list of (server_id, handle). handle is the Ray actor handle so we can call methods on it
+        self.replicated_shards = {} # copies of other servers' weights this server is backing up. stores dict of master server id -> {weight_idx: val}
+        
 
     def pull_weights(self, indices, expected_iteration=None) -> dict[int, float]:
+        print(f"[{self.server_id}] curr={self.current_iteration}, expected={expected_iteration}")
         if not self.async_updates and expected_iteration is not None:
             while self.current_iteration < expected_iteration:
                 time.sleep(0.001)
@@ -87,8 +92,12 @@ class ParameterServer:
         self.gradient_store = {weight_index: [] for weight_index in self.weight_indices}
         self.current_iteration += 1
 
-        if CHECKPOINT_EVERY > 0 and self.current_iteration % CHECKPOINT_EVERY == 0:
+        # replicate to followers (replicas) for fault tolerance
+        self.replicate_to_replicas()
+
+        if config.CHECKPOINT_EVERY > 0 and self.current_iteration % config.CHECKPOINT_EVERY == 0:
             self.add_checkpoint()
+
     
     # absorb the additional weights inherited from a failed server
     def absorb_weights(self, new_weight_dict: dict[int, float]) -> int:
@@ -105,6 +114,7 @@ class ParameterServer:
         return self.current_iteration
 
     def set_iteration(self, iteration: int) -> None:
+        
         self.current_iteration = iteration
 
     def get_weight_indices(self) -> list:
@@ -113,7 +123,9 @@ class ParameterServer:
     def _checkpoint_path(self) -> str:
         return os.path.join(CHECKPOINT_DIR, f"checkpoint_{self.server_id}.json")
 
+
     def add_checkpoint(self):
+        print(f"[CHECKPOINT] {self.server_id} at iteration {self.current_iteration}")
         os.makedirs(CHECKPOINT_DIR, exist_ok=True)
         checkpoint_data = {
             "iteration": int(self.current_iteration),
@@ -143,3 +155,32 @@ class ParameterServer:
         self.weight_vals = loaded_weights
         self.current_iteration = data["iteration"]
         return self.current_iteration
+
+    # functions for chain replication
+    def set_replicas(self, replicas):
+        self.replicas = replicas 
+    
+    def replicate(self, leader_id, weight_dict, iteration):
+        self.replicated_shards[leader_id] = dict(weight_dict)
+    
+    def get_replicated_shards(self, leader_id):
+        return self.replicated_shards.get(leader_id, None)
+
+    def replicate_to_replicas(self):
+        if not self.replicas:
+            return 
+        snapshot = dict(self.weight_vals)
+       # push updated weights to replica servers (chain replication) using replicate() function. eventual replication
+        for _, handle in self.replicas:
+            handle.replicate.remote(
+                self.server_id,
+                snapshot,
+                self.current_iteration
+            )
+
+        # we can't use this because it introduces deadlocks / circular waits where servers might be waiting for each other
+        # ray.get([handle.replicate.remote(
+        #     self.server_id,
+        #     snapshot,
+        #     self.current_iteration
+        # ) for _, handle in self.replicas])
