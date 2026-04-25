@@ -69,9 +69,8 @@ The cost of BSP is idleness because the fastest workers spend time waiting for t
 #### 3.2 Bounded Delay
 Bounded delay allows workers to run ahead by some set staleness window. We implement bounded delay through a shared ProgressTracker Ray actor. The tracker maintains a per-worker counter of completed steps and exposes two methods:
 
-wait_until_can_advance(worker_id): blocks the calling worker until its step count is within the staleness bound of the minimum step count across all workers.
-
-report_completed_step(worker_id): increments the worker's counter after completing a step.
+- wait_until_can_advance(worker_id): blocks the calling worker until its step count is within the staleness bound of the minimum step count across all workers.
+- report_completed_step(worker_id): increments the worker's counter after completing a step.
 
 #### 3.3 Asynchronous
 Workers operate fully independently and the server applies each gradient immediately upon receipt without waiting for other workers. The implementation is straightforward: in push_gradients, if async_updates is True, the server calls _apply_gradients_immediate() directly rather than buffering. In train_loop_async, workers run a tight loop of pull-compute-push without any iteration tracking or synchronization primitives.
