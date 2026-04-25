@@ -60,7 +60,7 @@ def test_static_reshard():
         _run_iterations(workers, 0, kill_after)
 
         victim_id = "server_0"
-        victim_indices = ring.get_weightIdxs_for_specific_server(victim_id)
+        victim_indices = ring.indices_for_server(victim_id)
         pre_kill_orphans: Dict[int, float] = ray.get(
             servers[victim_id].pull_weights.remote(victim_indices)
         )

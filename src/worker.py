@@ -133,7 +133,7 @@ class Worker:
         self.hash_ring = ring
         self.servers = dict(servers)
         # rebuild weight map
-        self.weight_to_server_map = ring.build_weight_map(self.num_weights)
+        self.weight_to_server_map = ring.build_weight_map()
 
     def set_iteration(self, iteration):
         self.current_iteration = iteration

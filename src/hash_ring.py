@@ -50,6 +50,8 @@ class HashRing:
     def indices_for_server(self, server_id: str):
         if self._weight_map is None:
             self.build_weight_map()
+        assert self._weight_map is not None
+
         return [k for k, v in self._weight_map.items() if v == server_id]
 
     def all_server_indices(self) -> dict[str, list[int]]:
@@ -57,6 +59,8 @@ class HashRing:
             self.build_weight_map()
     
         keys_by_server = {}
+        assert self._weight_map is not None
+
 
         for k, server_id in self._weight_map.items():
             if server_id not in keys_by_server:
