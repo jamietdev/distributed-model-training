@@ -45,8 +45,9 @@ Features from the paper we implemented:
 
 ## Architecture
 #### 2.1 Roles: 
-Workers: Each holds a data shard. On every step, they pull weights from servers, compute logistic regression gradients, and push gradient dicts back to the responsible servers. No direct worker-to-worker communication.
-Servers: Own weight shards, buffer or immediately apply incoming gradients, and serve updated weights. Expose two RPCs — pull_weights(indices, expected_iteration) and push_gradients(gradient_dict, worker_id, iteration). Both roles are Ray remote actors, enabling concurrent execution.
+**Workers:** Each holds a data shard. On every step, they pull weights from servers, compute logistic regression gradients, and push gradient dicts back to the responsible servers. No direct worker-to-worker communication.
+
+**Servers:** Own weight shards, buffer or immediately apply incoming gradients, and serve updated weights. Expose two RPCs — pull_weights(indices, expected_iteration) and push_gradients(gradient_dict, worker_id, iteration). Both roles are Ray remote actors, enabling concurrent execution.
 
 Both workers and servers are Ray remote actors, enabling them to run concurrently across available CPU cores. 
 
@@ -67,7 +68,9 @@ The cost of BSP is idleness because the fastest workers spend time waiting for t
 
 #### 3.2 Bounded Delay
 Bounded delay allows workers to run ahead by some set staleness window. We implement bounded delay through a shared ProgressTracker Ray actor. The tracker maintains a per-worker counter of completed steps and exposes two methods:
+
 wait_until_can_advance(worker_id): blocks the calling worker until its step count is within the staleness bound of the minimum step count across all workers.
+
 report_completed_step(worker_id): increments the worker's counter after completing a step.
 
 #### 3.3 Asynchronous
@@ -84,11 +87,11 @@ The async mode reaches the highest accuracy (~87%) the fastest. This is the key 
 In “checkpoint” mode, each ParameterServer periodically (based on CHECKPOINT_EVERY config parameter) serializes its weight shard and iteration number to a JSON file on “disk”. 
 
 The recovery procedure (reshard_after_failure in recovery.py) does the following:
-Reads the dead server's checkpoint
-Removes the dead server from the hash ring (ring.remove_server())
-Determines new owners for each orphaned weight index by querying the updated ring
-Calls absorb_weights() on each surviving server to transfer the orphaned weights.
-Finally, all servers and workers are updated to agree on the latest committed iteration and the new ring topology.
+- Reads the dead server's checkpoint
+- Removes the dead server from the hash ring (ring.remove_server())
+- Determines new owners for each orphaned weight index by querying the updated ring
+- Calls absorb_weights() on each surviving server to transfer the orphaned weights.
+- Finally, all servers and workers are updated to agree on the latest committed iteration and the new ring topology.
 
 #### 4.2 Strategy 2: Chain Replication
 In “chain” mode, we keep live copies of each server's weight shard on one or more neighboring servers in ring order. When a server fails, recovery simply reads the already-in-memory replica from a surviving neighbor rather than going to disk. This means the recovered weights are current up to the last replication event, not just the last checkpoint.
