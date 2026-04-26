@@ -51,7 +51,7 @@ ACCURACY_EVAL_EVERY = 10
 
 SYNC_LABELS = {
     SyncMode.SEQUENTIAL_BSP: "BSP",
-    SyncMode.BOUNDED_DELAY: "bounded delay",
+    SyncMode.BOUNDED_DELAY: f'bounded delay (staleness={BOUNDED_DELAY_STALENESS})',
     SyncMode.ASYNCHRONOUS: "async",
 }
 
