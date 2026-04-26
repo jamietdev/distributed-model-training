@@ -1,25 +1,39 @@
+"""
+End-to-end Ray benchmark: wall-clock weight updates/sec (fixed steps per
+worker) and test accuracy vs wall-clock time, all three sync modes.
+
+Writes PNGs to plots/plot_wallclock_updates_accuracy/:
+  throughput_workers.png, throughput_servers.png, throughput_replicas.png,
+  accuracy_vs_time.png
+
+  python src/plot_wallclock_updates_accuracy.py
+"""
 from __future__ import annotations
 
-import time
 import os
+import random
 import sys
+import time
+from collections.abc import Callable
+
 import matplotlib.pyplot as plt
+import numpy as np
 import ray
 
-# allow running from repo root
 _SRC = os.path.dirname(os.path.abspath(__file__))
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
 from cluster import build_cluster, teardown_cluster
 from config import (
+    BOUNDED_DELAY_STALENESS,
     LEARNING_RATE,
     NUM_WEIGHTS,
+    SEED,
     SyncMode,
 )
 from load_mnist import load_mnist_data
 from main import evaluate_global_model, gather_full_weights
-
 
 WORKER_SWEEP = [1, 2, 4, 6, 8]
 SERVER_SWEEP = [1, 2, 4, 8]
@@ -29,8 +43,11 @@ FIXED_WORKERS = 6
 FIXED_SERVERS = 2
 FIXED_REPLICA_WORKERS = 6
 FIXED_REPLICA_SERVERS = 4
+NUM_RING_REPLICAS = 2
 
 STEPS_PER_WORKER = 30
+ACCURACY_TRAIN_STEPS = 100
+ACCURACY_EVAL_EVERY = 10
 
 SYNC_LABELS = {
     SyncMode.SEQUENTIAL_BSP: "BSP",
@@ -39,14 +56,30 @@ SYNC_LABELS = {
 }
 
 
+def _reset_seeds() -> None:
+    """Shard placement uses np.random; weight init uses random.Random(SEED) in build_cluster."""
+    np.random.seed(SEED)
+    random.seed(SEED)
+
+
+def _run_training_chunk(workers, n_steps: int, mode: SyncMode) -> None:
+    if mode == SyncMode.ASYNCHRONOUS:
+        ray.get([w.train_loop_async.remote(n_steps) for w in workers])
+    elif mode == SyncMode.BOUNDED_DELAY:
+        ray.get([w.run_bounded_session.remote(n_steps) for w in workers])
+    else:
+        raise ValueError(f"Not a polling mode: {mode}")
+
+
 def run_throughput_trial(
-    num_workers,
-    num_servers,
-    num_replicas,
+    num_workers: int,
+    num_servers: int,
+    num_replicas: int,
     X,
     y,
-    mode,
-):
+    mode: SyncMode,
+) -> float:
+    _reset_seeds()
     ring, servers, workers, tracker = build_cluster(
         num_workers=num_workers,
         num_servers=num_servers,
@@ -62,6 +95,8 @@ def run_throughput_trial(
 
     if mode == SyncMode.ASYNCHRONOUS:
         ray.get([w.train_loop_async.remote(STEPS_PER_WORKER) for w in workers])
+    elif mode == SyncMode.BOUNDED_DELAY:
+        ray.get([w.run_bounded_session.remote(STEPS_PER_WORKER) for w in workers])
     else:
         for it in range(STEPS_PER_WORKER):
             ray.get([w.run_iteration.remote(it) for w in workers])
@@ -70,11 +105,20 @@ def run_throughput_trial(
     teardown_cluster(servers, workers, tracker)
 
     total_updates = num_workers * STEPS_PER_WORKER
-    return total_updates / elapsed  # updates/sec
+    return total_updates / elapsed
 
 
-# accuracy vs time
-def run_accuracy_curve(num_workers, num_servers, num_replicas, X, y, X_test, y_test, mode):
+def run_accuracy_curve(
+    num_workers: int,
+    num_servers: int,
+    num_replicas: int,
+    X,
+    y,
+    X_test,
+    y_test,
+    mode: SyncMode,
+) -> tuple[list[float], list[float]]:
+    _reset_seeds()
     ring, servers, workers, tracker = build_cluster(
         num_workers=num_workers,
         num_servers=num_servers,
@@ -84,57 +128,69 @@ def run_accuracy_curve(num_workers, num_servers, num_replicas, X, y, X_test, y_t
         X_train=X,
         y_train=y,
         sync_mode=mode,
+        bounded_delay_staleness=BOUNDED_DELAY_STALENESS,
     )
 
-    times = []
-    accs = []
-
+    times: list[float] = []
+    accs: list[float] = []
     start = time.perf_counter()
     total_steps = 0
-    eval_every = 10
 
     try:
-        if mode == SyncMode.ASYNCHRONOUS:
+        if mode in (SyncMode.ASYNCHRONOUS, SyncMode.BOUNDED_DELAY):
             weights = gather_full_weights(servers, ring, NUM_WEIGHTS)
             acc = evaluate_global_model(weights, X_test, y_test)
-
-            times.append(0)
+            times.append(0.0)
             accs.append(acc)
-            while total_steps < 100:
-                ray.get([w.train_loop_async.remote(eval_every) for w in workers])
-                total_steps += eval_every
+            while total_steps < ACCURACY_TRAIN_STEPS:
+                _run_training_chunk(workers, ACCURACY_EVAL_EVERY, mode)
+                total_steps += ACCURACY_EVAL_EVERY
                 weights = gather_full_weights(servers, ring, NUM_WEIGHTS)
                 acc = evaluate_global_model(weights, X_test, y_test)
-
                 times.append(time.perf_counter() - start)
                 accs.append(acc)
-
         else:
             weights = gather_full_weights(servers, ring, NUM_WEIGHTS)
             acc = evaluate_global_model(weights, X_test, y_test)
-
-            times.append(0)
+            times.append(0.0)
             accs.append(acc)
-            for it in range(100):
+            for it in range(ACCURACY_TRAIN_STEPS):
                 ray.get([w.run_iteration.remote(it) for w in workers])
-
-                if it % eval_every == 0:
+                if it % ACCURACY_EVAL_EVERY == 0:
                     weights = gather_full_weights(servers, ring, NUM_WEIGHTS)
                     acc = evaluate_global_model(weights, X_test, y_test)
-
                     times.append(time.perf_counter() - start)
                     accs.append(acc)
-
     finally:
         teardown_cluster(servers, workers, tracker)
 
     return times, accs
 
 
+def _sweep_throughput_1d(
+    x_values: list[int],
+    X,
+    y,
+    triplet: Callable[[int], tuple[int, int, int]],
+) -> dict[SyncMode, list[float]]:
+    out: dict[SyncMode, list[float]] = {mode: [] for mode in SyncMode}
+    for x in x_values:
+        nw, ns, nr = triplet(x)
+        for mode in SyncMode:
+            t = run_throughput_trial(nw, ns, nr, X, y, mode)
+            out[mode].append(t)
+    return out
 
-def plot_lines(x_values, results, xlabel, ylabel, title, filename, logx=False):
+
+def _plot_throughput_lines(
+    x_values: list[int],
+    results: dict[SyncMode, list[float]],
+    xlabel: str,
+    title: str,
+    out_path: str,
+    logx: bool = False,
+) -> None:
     plt.figure()
-
     for mode in SyncMode:
         plt.plot(
             x_values,
@@ -142,94 +198,78 @@ def plot_lines(x_values, results, xlabel, ylabel, title, filename, logx=False):
             marker="o",
             label=SYNC_LABELS[mode],
         )
-
     plt.xlabel(xlabel)
-    plt.ylabel(ylabel)
+    plt.ylabel("Updates / sec")
     plt.title(title)
     if logx:
         plt.xscale("log")
-
     plt.legend()
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig(filename, dpi=150)
+    plt.savefig(out_path, dpi=150)
     plt.close()
 
 
-
-def main():
+def main() -> None:
     ray.init(ignore_reinit_error=True, log_to_driver=False)
+    out_dir = os.path.join(
+        os.path.dirname(_SRC), "plots", "plot_wallclock_updates_accuracy"
+    )
+    os.makedirs(out_dir, exist_ok=True)
 
+    _reset_seeds()
     X, y, X_test, y_test = load_mnist_data()
 
-    # throughput vs workers
-    results = {mode: [] for mode in SyncMode}
-    for nw in WORKER_SWEEP:
-        for mode in SyncMode:
-            t = run_throughput_trial(
-                nw, FIXED_SERVERS, 2, X, y, mode
-            )
-            results[mode].append(t)
-
-    plot_lines(
+    w = _sweep_throughput_1d(
         WORKER_SWEEP,
-        results,
+        X,
+        y,
+        lambda nw: (nw, FIXED_SERVERS, NUM_RING_REPLICAS),
+    )
+    _plot_throughput_lines(
+        WORKER_SWEEP,
+        w,
         "Workers",
-        "Updates / sec",
         "Throughput vs Workers",
-        "throughput_workers.png",
+        os.path.join(out_dir, "throughput_workers.png"),
     )
 
-    # throughput vs servers
-    results = {mode: [] for mode in SyncMode}
-    for ns in SERVER_SWEEP:
-        for mode in SyncMode:
-            t = run_throughput_trial(
-                FIXED_WORKERS, ns, 2, X, y, mode
-            )
-            results[mode].append(t)
-
-    plot_lines(
+    s = _sweep_throughput_1d(
         SERVER_SWEEP,
-        results,
+        X,
+        y,
+        lambda ns: (FIXED_WORKERS, ns, NUM_RING_REPLICAS),
+    )
+    _plot_throughput_lines(
+        SERVER_SWEEP,
+        s,
         "Servers",
-        "Updates / sec",
         "Throughput vs Servers",
-        "throughput_servers.png",
+        os.path.join(out_dir, "throughput_servers.png"),
     )
 
-    # throughput vs replicas
-    results = {mode: [] for mode in SyncMode}
-    for nr in REPLICA_SWEEP:
-        for mode in SyncMode:
-            t = run_throughput_trial(
-                FIXED_REPLICA_WORKERS,
-                FIXED_REPLICA_SERVERS,
-                nr,
-                X,
-                y,
-                mode,
-            )
-            results[mode].append(t)
-
-    plot_lines(
+    r = _sweep_throughput_1d(
         REPLICA_SWEEP,
-        results,
+        X,
+        y,
+        lambda nr: (FIXED_REPLICA_WORKERS, FIXED_REPLICA_SERVERS, nr),
+    )
+    _plot_throughput_lines(
+        REPLICA_SWEEP,
+        r,
         "Replicas",
-        "Updates / sec",
         "Throughput vs Replicas",
-        "throughput_replicas.png",
+        os.path.join(out_dir, "throughput_replicas.png"),
         logx=True,
     )
 
-    # accuracy vs time
+    out_accuracy = os.path.join(out_dir, "accuracy_vs_time.png")
     plt.figure()
-
     for mode in SyncMode:
         times, accs = run_accuracy_curve(
             FIXED_WORKERS,
             FIXED_SERVERS,
-            2,
+            NUM_RING_REPLICAS,
             X,
             y,
             X_test,
@@ -237,15 +277,15 @@ def main():
             mode,
         )
         plt.plot(times, accs, marker="o", label=SYNC_LABELS[mode])
-
     plt.xlabel("Time (seconds)")
     plt.ylabel("Accuracy")
     plt.title("Test Accuracy vs Wall-Clock Time")
     plt.legend()
     plt.grid(alpha=0.3)
     plt.tight_layout()
-    plt.savefig("accuracy_vs_time.png", dpi=150)
+    plt.savefig(out_accuracy, dpi=150)
     plt.close()
+    print(f"Wrote {out_accuracy}")
 
     ray.shutdown()
 

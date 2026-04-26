@@ -7,6 +7,7 @@ Optionally include SEQUENTIAL_BSP and/or asynchronous references (throughput: ho
 
 From repo root:  python src/accuracy_delay_sweep.py
                  python src/accuracy_delay_sweep.py --metric throughput --delays 1,2,5,10
+                 python src/accuracy_delay_sweep.py --metric throughput --steps-per-round 10
 From src/:        python accuracy_delay_sweep.py
 """
 from __future__ import annotations
@@ -77,7 +78,7 @@ def main() -> None:
         "--out-figure",
         type=str,
         default=None,
-        help="Output PNG path (defaults: plots/accuracy_vs_staleness.png or plots/throughput_vs_staleness.png).",
+        help="Output PNG path (defaults: plots/accuracy_delay_sweep/accuracy_vs_staleness.png or .../throughput_vs_staleness.png).",
     )
     parser.add_argument(
         "--out-json",
@@ -148,6 +149,14 @@ def main() -> None:
         default=NUM_REPLICAS,
         help=f"Hash-ring virtual nodes per server (default: {NUM_REPLICAS}).",
     )
+    parser.add_argument(
+        "--steps-per-round",
+        type=int,
+        default=1,
+        help="Throughput only: for bounded delay, how many local steps per worker per timed "
+        "round (default: 1). B>1 measures larger chunks (merges more tracker RPCs per round). "
+        "Throughput 'it/s' is B-step rounds per second, not per single step.",
+    )
     args = parser.parse_args()
 
     delays = parse_delays(args.delays)
@@ -171,7 +180,9 @@ def main() -> None:
         if args.metric == "throughput"
         else "accuracy_vs_staleness.png"
     )
-    out_fig = args.out_figure or os.path.join(repo_root, "plots", default_name)
+    out_fig = args.out_figure or os.path.join(
+        repo_root, "plots", "accuracy_delay_sweep", default_name
+    )
     base, _ = os.path.splitext(out_fig)
     out_json = args.out_json or f"{base}.json"
     out_csv = args.out_csv or f"{base}.csv"
@@ -189,9 +200,13 @@ def main() -> None:
         X_train, y_train, _, _ = load_mnist_data()
         bench_total_iters = warmup + timed_iters
 
+        spr = max(1, int(args.steps_per_round))
         for s in delays:
             np.random.seed(args.seed)
-            print(f"\n=== Throughput, bounded delay staleness={s} ===")
+            print(
+                f"\n=== Throughput, bounded delay staleness={s} "
+                f"(B={spr} local steps / worker / round) ==="
+            )
             times = run_one_trial(
                 num_workers=args.num_workers,
                 num_servers=NUM_SERVERS,
@@ -204,12 +219,13 @@ def main() -> None:
                 warmup_iters=warmup,
                 sync_mode=SyncMode.BOUNDED_DELAY,
                 bounded_delay_staleness=s,
+                steps_per_bound_round=spr,
             )
             thr, mean_s = _mean_throughput_its(times)
             n = len(times)
             print(
-                f"  timed samples={n}  mean {mean_s*1000:.2f} ms/iter  "
-                f"throughput = {thr:.2f} global it/s"
+                f"  timed samples={n}  mean {mean_s*1000:.2f} ms/round  "
+                f"throughput = {thr:.2f} B-step rounds/s"
             )
             label = f"s={s}"
             series.append(
@@ -318,6 +334,8 @@ def main() -> None:
             "timed_iters": timed_iters,
             "bench_total_iters": bench_total_iters,
             "seed": args.seed,
+            "steps_per_bound_round": spr,
+            "throughput_unit": "B_step_rounds_per_s",
         }
         if bsp_ref_throughput is not None:
             meta["bsp_reference"] = bsp_ref_throughput
@@ -336,6 +354,7 @@ def main() -> None:
                 bounded_delay_staleness=s,
                 num_iterations=num_iterations,
                 eval_every=eval_every,
+                random_seed=args.seed,
             )
             label = f"s={s}"
             ser = {
@@ -366,6 +385,7 @@ def main() -> None:
                 sync_mode=SyncMode.SEQUENTIAL_BSP,
                 num_iterations=num_iterations,
                 eval_every=eval_every,
+                random_seed=args.seed,
             )
             ser = {
                 "name": "sequential BSP",
@@ -445,9 +465,16 @@ def main() -> None:
                 label=async_ref_throughput["name"],
             )
         ax.set_xlabel("Staleness s")
-        ax.set_ylabel("Throughput (all-worker steps / s)")
+        spr = max(1, int(args.steps_per_round))
+        if spr == 1:
+            ax.set_ylabel("Throughput (1 local step / worker / round; s⁻¹)")
+        else:
+            ax.set_ylabel(
+                f"Throughput (B={spr} local steps / worker / round; s⁻¹)"
+            )
         ax.set_title(
-            "Training throughput vs staleness (sync: global iters; ref lines: BSP & async)"
+            "Training throughput vs staleness (ref: BSP & async = 1 step/round; "
+            f"bounded delay uses B from --steps-per-round, default 1)"
         )
     else:
         for ser in series:

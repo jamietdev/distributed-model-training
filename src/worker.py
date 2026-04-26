@@ -56,9 +56,10 @@ class Worker:
         Bounded delay: local step loop (no global per-step driver barrier). ProgressTracker
         limits how far ahead of the slowest worker this worker can go; server applies
         one scaled partial update per push (stale reads, no full-N barrier).
+        Uses merged report+wait (except first wait and last report) to cut tracker RPCs.
         """
-        for _ in range(num_steps):
-            if self.progress_tracker is not None:
+        for step_idx in range(num_steps):
+            if self.progress_tracker is not None and step_idx == 0:
                 ray.get(
                     self.progress_tracker.wait_until_can_advance.remote(self.worker_id)
                 )
@@ -69,9 +70,18 @@ class Worker:
             gradients = self.compute_gradients(self.local_weights, X_batch, y_batch)
             self.push_gradients(gradients)
             if self.progress_tracker is not None:
-                ray.get(
-                    self.progress_tracker.report_completed_step.remote(self.worker_id)
-                )
+                if step_idx < num_steps - 1:
+                    ray.get(
+                        self.progress_tracker.report_completed_and_wait_to_start_next.remote(
+                            self.worker_id
+                        )
+                    )
+                else:
+                    ray.get(
+                        self.progress_tracker.report_completed_step.remote(
+                            self.worker_id
+                        )
+                    )
             self._local_step += 1
 
     def train_loop_async(self, num_steps: int):

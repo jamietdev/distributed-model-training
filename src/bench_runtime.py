@@ -49,6 +49,7 @@ def run_one_trial(
     warmup_iters=WARMUP_ITERS,
     sync_mode: SyncMode = SyncMode.SEQUENTIAL_BSP,
     bounded_delay_staleness: int | None = None,
+    steps_per_bound_round: int = 1,
 ):
     if bounded_delay_staleness is None:
         bounded_delay_staleness = BOUNDED_DELAY_STALENESS
@@ -64,16 +65,20 @@ def run_one_trial(
         bounded_delay_staleness=bounded_delay_staleness,
     )
 
-    # timed loop: one sample = wall time for all workers to complete one local step
-    # (sync: same global it; bounded delay: run_bounded_session(1) per round).
+    # timed loop: one sample = wall time for all workers to finish the same "round"
+    # (sequential BSP: one global it; bounded delay: run_bounded_session(B) per round where
+    # B=steps_per_bound_round local steps per worker; B=1 matches former behavior).
+    if steps_per_bound_round < 1:
+        raise ValueError("steps_per_bound_round must be >= 1")
+    bound_timeout = ITER_TIMEOUT_S * max(1, steps_per_bound_round)
     iter_times = []
     try:
         for it in range(num_iterations):
             t0 = time.perf_counter()
             if sync_mode == SyncMode.BOUNDED_DELAY:
                 ray.get(
-                    [w.run_bounded_session.remote(1) for w in workers],
-                    timeout=ITER_TIMEOUT_S,
+                    [w.run_bounded_session.remote(steps_per_bound_round) for w in workers],
+                    timeout=bound_timeout,
                 )
             else:
                 ray.get(

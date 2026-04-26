@@ -1,12 +1,12 @@
 """
-Sweep workers, servers, and hash-ring virtual nodes (replicas) for each SyncMode;
-write separate plots (latency and throughput vs each dimension), each with all
-three synchronization modes.
+Sweep workers, servers, and hash-ring virtual nodes (replicas) for each SyncMode
+using `bench_runtime.run_one_trial`; write latency and throughput vs each
+dimension (mean iteration time from the timed loop).
 
-Run from repo:  python src/bench_plots.py
-              python src/bench_plots.py --quick   # smaller sweep, fewer timed iters
+  python src/plot_iteration_trial_scaling.py
+  python src/plot_iteration_trial_scaling.py --quick
 
-Or from src/:   python bench_plots.py
+Default output: plots/plot_iteration_trial_scaling/ (overridable with --output-dir).
 """
 from __future__ import annotations
 
@@ -14,11 +14,11 @@ import argparse
 import os
 import statistics
 import sys
+from collections.abc import Callable
 
 import matplotlib.pyplot as plt
 import ray
 
-# Allow running as `python src/bench_plots.py` (cwd = repo root)
 _SRC = os.path.dirname(os.path.abspath(__file__))
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
@@ -39,7 +39,6 @@ NUM_REPLICAS = 2
 
 WORKER_SWEEP_FULL = [1, 2, 4, 6, 8]
 SERVER_SWEEP_FULL = [1, 2, 4, 8]
-# Match bench_replicas: steady-state cost vs virtual-node count
 FIXED_REPLICA_WORKERS = 6
 FIXED_REPLICA_SERVERS = 4
 REPLICA_SWEEP_FULL = [1, 2, 10, 50, 200]
@@ -65,108 +64,38 @@ def mean_throughput(times: list[float]) -> tuple[float, float]:
     return m, thr
 
 
-def collect_worker_scaling(
+def _collect_axis_sweep(
     X_train,
     y_train,
-    worker_sweep: list[int],
+    xs: list[int],
     timed_iters: int,
     warmup_iters: int,
+    trial_params: Callable[[int], dict],
+    log_key: str,
 ) -> dict[SyncMode, dict[str, list]]:
     out: dict[SyncMode, dict[str, list]] = {}
     for mode in SyncMode:
         latencies = []
         throughputs = []
-        for nw in worker_sweep:
+        for x in xs:
             times = run_one_trial(
-                num_workers=nw,
-                num_servers=FIXED_SERVERS,
                 num_weights=NUM_WEIGHTS,
                 num_iterations=timed_iters + warmup_iters,
-                num_replicas=NUM_REPLICAS,
                 learning_rate=LEARNING_RATE,
                 X_train=X_train,
                 y_train=y_train,
                 sync_mode=mode,
                 warmup_iters=warmup_iters,
+                **trial_params(x),
             )
             m, thr = mean_throughput(times)
             latencies.append(m * 1000.0)
             throughputs.append(thr)
             print(
-                f"  workers={nw} sync={mode.value} "
+                f"  {log_key}={x} sync={mode.value} "
                 f"mean_latency_ms={m*1000:.2f} throughput_it_s={thr:.2f}"
             )
-        out[mode] = {"x": list(worker_sweep), "latency_ms": latencies, "throughput": throughputs}
-    return out
-
-
-def collect_server_scaling(
-    X_train,
-    y_train,
-    server_sweep: list[int],
-    timed_iters: int,
-    warmup_iters: int,
-) -> dict[SyncMode, dict[str, list]]:
-    out: dict[SyncMode, dict[str, list]] = {}
-    for mode in SyncMode:
-        latencies = []
-        throughputs = []
-        for ns in server_sweep:
-            times = run_one_trial(
-                num_workers=FIXED_WORKERS,
-                num_servers=ns,
-                num_weights=NUM_WEIGHTS,
-                num_iterations=timed_iters + warmup_iters,
-                num_replicas=NUM_REPLICAS,
-                learning_rate=LEARNING_RATE,
-                X_train=X_train,
-                y_train=y_train,
-                sync_mode=mode,
-                warmup_iters=warmup_iters,
-            )
-            m, thr = mean_throughput(times)
-            latencies.append(m * 1000.0)
-            throughputs.append(thr)
-            print(
-                f"  servers={ns} sync={mode.value} "
-                f"mean_latency_ms={m*1000:.2f} throughput_it_s={thr:.2f}"
-            )
-        out[mode] = {"x": list(server_sweep), "latency_ms": latencies, "throughput": throughputs}
-    return out
-
-
-def collect_replica_scaling(
-    X_train,
-    y_train,
-    replica_sweep: list[int],
-    timed_iters: int,
-    warmup_iters: int,
-) -> dict[SyncMode, dict[str, list]]:
-    out: dict[SyncMode, dict[str, list]] = {}
-    for mode in SyncMode:
-        latencies = []
-        throughputs = []
-        for nr in replica_sweep:
-            times = run_one_trial(
-                num_workers=FIXED_REPLICA_WORKERS,
-                num_servers=FIXED_REPLICA_SERVERS,
-                num_weights=NUM_WEIGHTS,
-                num_iterations=timed_iters + warmup_iters,
-                num_replicas=nr,
-                learning_rate=LEARNING_RATE,
-                X_train=X_train,
-                y_train=y_train,
-                sync_mode=mode,
-                warmup_iters=warmup_iters,
-            )
-            m, thr = mean_throughput(times)
-            latencies.append(m * 1000.0)
-            throughputs.append(thr)
-            print(
-                f"  replicas={nr} sync={mode.value} "
-                f"mean_latency_ms={m*1000:.2f} throughput_it_s={thr:.2f}"
-            )
-        out[mode] = {"x": list(replica_sweep), "latency_ms": latencies, "throughput": throughputs}
+        out[mode] = {"x": list(xs), "latency_ms": latencies, "throughput": throughputs}
     return out
 
 
@@ -210,10 +139,8 @@ def plot_scaling_pngs(
     out_dir: str,
     file_prefix: str,
 ) -> None:
-    """Write PNGs for latency/throughput vs workers, servers, and virtual nodes."""
     os.makedirs(out_dir, exist_ok=True)
     p = file_prefix
-
     _plot_single(
         by_workers,
         "Number of workers",
@@ -268,8 +195,10 @@ def plot_scaling_pngs(
     )
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Benchmark scaling and plot latency/throughput.")
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Iteration-timing benchmark: sweep scale and plot latency/throughput."
+    )
     parser.add_argument(
         "--quick",
         action="store_true",
@@ -278,7 +207,7 @@ def main():
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Directory for PNG outputs (default: repository root).",
+        help="Directory for PNG outputs (default: plots/plot_iteration_trial_scaling).",
     )
     parser.add_argument(
         "--file-prefix",
@@ -304,19 +233,51 @@ def main():
     try:
         X_train, y_train, _, _ = load_mnist_data()
         print("\n=== Collecting worker scaling (all sync modes) ===")
-        by_workers = collect_worker_scaling(
-            X_train, y_train, worker_sweep, timed_iters, warmup_iters
+        by_workers = _collect_axis_sweep(
+            X_train,
+            y_train,
+            worker_sweep,
+            timed_iters,
+            warmup_iters,
+            lambda n: {
+                "num_workers": n,
+                "num_servers": FIXED_SERVERS,
+                "num_replicas": NUM_REPLICAS,
+            },
+            "workers",
         )
         print("\n=== Collecting server scaling (all sync modes) ===")
-        by_servers = collect_server_scaling(
-            X_train, y_train, server_sweep, timed_iters, warmup_iters
+        by_servers = _collect_axis_sweep(
+            X_train,
+            y_train,
+            server_sweep,
+            timed_iters,
+            warmup_iters,
+            lambda n: {
+                "num_workers": FIXED_WORKERS,
+                "num_servers": n,
+                "num_replicas": NUM_REPLICAS,
+            },
+            "servers",
         )
         print("\n=== Collecting replica (virtual node) scaling (all sync modes) ===")
-        by_replicas = collect_replica_scaling(
-            X_train, y_train, replica_sweep, timed_iters, warmup_iters
+        by_replicas = _collect_axis_sweep(
+            X_train,
+            y_train,
+            replica_sweep,
+            timed_iters,
+            warmup_iters,
+            lambda n: {
+                "num_workers": FIXED_REPLICA_WORKERS,
+                "num_servers": FIXED_REPLICA_SERVERS,
+                "num_replicas": n,
+            },
+            "replicas",
         )
         repo_root = os.path.dirname(_SRC)
-        out_dir = args.output_dir or repo_root
+        out_dir = args.output_dir or os.path.join(
+            repo_root, "plots", "plot_iteration_trial_scaling"
+        )
         prefix = args.file_prefix
         if prefix and not prefix.endswith("_"):
             prefix = f"{prefix}_"
