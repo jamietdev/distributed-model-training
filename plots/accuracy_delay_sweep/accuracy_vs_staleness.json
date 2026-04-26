@@ -1,0 +1,208 @@
+{
+  "meta": {
+    "num_workers": 6,
+    "num_servers": 2,
+    "num_weights": 785,
+    "learning_rate": 0.2,
+    "num_iterations": 40,
+    "eval_every": 5,
+    "seed": 0
+  },
+  "series": [
+    {
+      "name": "s=1",
+      "mode": "bounded_delay",
+      "staleness": 1,
+      "points": [
+        {
+          "iteration": 0,
+          "accuracy": 0.6859
+        },
+        {
+          "iteration": 5,
+          "accuracy": 0.822
+        },
+        {
+          "iteration": 10,
+          "accuracy": 0.8321
+        },
+        {
+          "iteration": 15,
+          "accuracy": 0.8377
+        },
+        {
+          "iteration": 20,
+          "accuracy": 0.8416
+        },
+        {
+          "iteration": 25,
+          "accuracy": 0.8459
+        },
+        {
+          "iteration": 30,
+          "accuracy": 0.849
+        },
+        {
+          "iteration": 35,
+          "accuracy": 0.8517
+        }
+      ]
+    },
+    {
+      "name": "s=2",
+      "mode": "bounded_delay",
+      "staleness": 2,
+      "points": [
+        {
+          "iteration": 0,
+          "accuracy": 0.6859
+        },
+        {
+          "iteration": 5,
+          "accuracy": 0.822
+        },
+        {
+          "iteration": 10,
+          "accuracy": 0.8321
+        },
+        {
+          "iteration": 15,
+          "accuracy": 0.8377
+        },
+        {
+          "iteration": 20,
+          "accuracy": 0.8416
+        },
+        {
+          "iteration": 25,
+          "accuracy": 0.8459
+        },
+        {
+          "iteration": 30,
+          "accuracy": 0.849
+        },
+        {
+          "iteration": 35,
+          "accuracy": 0.8517
+        }
+      ]
+    },
+    {
+      "name": "s=5",
+      "mode": "bounded_delay",
+      "staleness": 5,
+      "points": [
+        {
+          "iteration": 0,
+          "accuracy": 0.6859
+        },
+        {
+          "iteration": 5,
+          "accuracy": 0.822
+        },
+        {
+          "iteration": 10,
+          "accuracy": 0.8321
+        },
+        {
+          "iteration": 15,
+          "accuracy": 0.8377
+        },
+        {
+          "iteration": 20,
+          "accuracy": 0.8416
+        },
+        {
+          "iteration": 25,
+          "accuracy": 0.8459
+        },
+        {
+          "iteration": 30,
+          "accuracy": 0.849
+        },
+        {
+          "iteration": 35,
+          "accuracy": 0.8517
+        }
+      ]
+    },
+    {
+      "name": "s=8",
+      "mode": "bounded_delay",
+      "staleness": 8,
+      "points": [
+        {
+          "iteration": 0,
+          "accuracy": 0.6859
+        },
+        {
+          "iteration": 5,
+          "accuracy": 0.822
+        },
+        {
+          "iteration": 10,
+          "accuracy": 0.8321
+        },
+        {
+          "iteration": 15,
+          "accuracy": 0.8377
+        },
+        {
+          "iteration": 20,
+          "accuracy": 0.8416
+        },
+        {
+          "iteration": 25,
+          "accuracy": 0.8459
+        },
+        {
+          "iteration": 30,
+          "accuracy": 0.849
+        },
+        {
+          "iteration": 35,
+          "accuracy": 0.8517
+        }
+      ]
+    },
+    {
+      "name": "sequential BSP",
+      "mode": "sequential_bsp",
+      "staleness": null,
+      "points": [
+        {
+          "iteration": 0,
+          "accuracy": 0.6859
+        },
+        {
+          "iteration": 5,
+          "accuracy": 0.822
+        },
+        {
+          "iteration": 10,
+          "accuracy": 0.8321
+        },
+        {
+          "iteration": 15,
+          "accuracy": 0.8377
+        },
+        {
+          "iteration": 20,
+          "accuracy": 0.8416
+        },
+        {
+          "iteration": 25,
+          "accuracy": 0.8459
+        },
+        {
+          "iteration": 30,
+          "accuracy": 0.849
+        },
+        {
+          "iteration": 35,
+          "accuracy": 0.8517
+        }
+      ]
+    }
+  ]
+}

@@ -12,12 +12,19 @@ class SyncMode(str, Enum):
 NUM_SERVERS = 3
 NUM_WORKERS = 10
 NUM_WEIGHTS = 785  # 784 input features + 1 bias
-NUM_ITERATIONS = 500
-LEARNING_RATE = 0.05
-NUM_REPLICAS = 5
+NUM_ITERATIONS = 50
+LEARNING_RATE = 0.2
+NUM_REPLICAS = 2
 
 SYNC_MODE = SyncMode.SEQUENTIAL_BSP
-BOUNDED_DELAY_STALENESS = 2  # max steps ahead of slowest worker (only for BOUNDED_DELAY)
+# BOUNDED_DELAY: workers run local run_bounded_session with ProgressTracker (at most this many
+# steps ahead of the slowest); each gradient applies immediately with lr/num_workers per shard
+# (stale reads; no all-worker barrier each step), unlike SEQUENTIAL_BSP. ProgressTracker uses a
+# Ray actor with max_concurrency plus an in-actor lock/condition (see progress_tracker.py).
+BOUNDED_DELAY_STALENESS = 5
+# Placeholder for future "check staleness every k local steps" (looser) modes; only 1 is
+# supported — full per-step ProgressTracker policy is always enforced in code.
+BOUNDED_DELAY_CHECK_EVERY = 1
 
 # for runtime testing
 WARMUP_ITERS = 5  # discarded; first few iters are dominated by JIT/RPC setup

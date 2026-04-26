@@ -33,6 +33,7 @@ class Worker:
         self.progress_tracker = progress_tracker
         self.local_weights = np.zeros(self.num_weights, dtype=np.float32)
         self.weight_to_server_map = hash_ring.build_weight_map()
+        self._local_step = 0
 
     def run_iteration(self, iteration_num: int):
         print(f"[{self.worker_id}] iter={self.current_iteration}")
@@ -40,7 +41,7 @@ class Worker:
         if self.progress_tracker is not None:
             ray.get(self.progress_tracker.wait_until_can_advance.remote(self.worker_id))
 
-        self.pull_weights(wait_for_iteration=True)
+        self.pull_weights()
 
         X_batch = self.X_train_batch
         y_batch = self.y_train_batch
@@ -49,6 +50,39 @@ class Worker:
 
         if self.progress_tracker is not None:
             ray.get(self.progress_tracker.report_completed_step.remote(self.worker_id))
+
+    def run_bounded_session(self, num_steps: int):
+        """
+        Bounded delay: local step loop (no global per-step driver barrier). ProgressTracker
+        limits how far ahead of the slowest worker this worker can go; server applies
+        one scaled partial update per push (stale reads, no full-N barrier).
+        Uses merged report+wait (except first wait and last report) to cut tracker RPCs.
+        """
+        for step_idx in range(num_steps):
+            if self.progress_tracker is not None and step_idx == 0:
+                ray.get(
+                    self.progress_tracker.wait_until_can_advance.remote(self.worker_id)
+                )
+            self.current_iteration = self._local_step
+            self.pull_weights()
+            X_batch = self.X_train_batch
+            y_batch = self.y_train_batch
+            gradients = self.compute_gradients(self.local_weights, X_batch, y_batch)
+            self.push_gradients(gradients)
+            if self.progress_tracker is not None:
+                if step_idx < num_steps - 1:
+                    ray.get(
+                        self.progress_tracker.report_completed_and_wait_to_start_next.remote(
+                            self.worker_id
+                        )
+                    )
+                else:
+                    ray.get(
+                        self.progress_tracker.report_completed_step.remote(
+                            self.worker_id
+                        )
+                    )
+            self._local_step += 1
 
     def train_loop_async(self, num_steps: int):
         """Independent steps; servers apply gradients immediately (no BSP barrier)."""
@@ -76,29 +110,24 @@ class Worker:
             gradients_dict[i] = gradients[i]
         return gradients_dict
 
-
-    def pull_weights(self, wait_for_iteration: bool = True):
+    def pull_weights(self, wait_for_iteration: bool | None = None):
         """
-        Pulls weights from each server and stores them in local_weights
+        Pulls weights from each server and stores them in local_weights.
+        If wait_for_iteration is None, only SEQUENTIAL_BSP waits (BSP read barrier);
+        BOUNDED_DELAY and ASYNCHRONOUS use the latest / stale local view.
         """
-
+        if wait_for_iteration is None:
+            wait_for_iteration = self.sync_mode == SyncMode.SEQUENTIAL_BSP
         servers_and_their_weights = defaultdict(list)
         for weight_index, server_id in self.weight_to_server_map.items():
             servers_and_their_weights[server_id].append(weight_index)
 
-        expected = (
-            self.current_iteration if wait_for_iteration else None
-        )
+        expected = self.current_iteration if wait_for_iteration else None
         refs = []
-        server_ids = []
-        weight_lists = []
-
         for server_id, weight_indices in servers_and_their_weights.items():
             refs.append(
                 self.servers[server_id].pull_weights.remote(weight_indices, expected)
             )
-            server_ids.append(server_id)
-            weight_lists.append(weight_indices)
 
         results = ray.get(refs)
 

@@ -18,8 +18,6 @@ To run training:
 python3 main.py
 ```
 
-
-
 # WRITEUP
 ### Project Overview
 Implementing https://www.usenix.org/system/files/conference/osdi14/osdi14-paper-li_mu.pdf.
@@ -71,6 +69,8 @@ Bounded delay allows workers to run ahead by some set staleness window. We imple
 
 - wait_until_can_advance(worker_id): blocks the calling worker until its step count is within the staleness bound of the minimum step count across all workers.
 - report_completed_step(worker_id): increments the worker's counter after completing a step.
+
+In this codebase, bounded delay is semi-asynchronous: workers are not global-barriered every step, and parameter servers apply each push with learning rate scaled by `1/num_workers` (versus BSP, which averages all `N` worker gradients in one update). Staleness `s` limits how far a worker can run ahead of the slowest (`ProgressTracker`).
 
 #### 3.3 Asynchronous
 Workers operate fully independently and the server applies each gradient immediately upon receipt without waiting for other workers. The implementation is straightforward: in push_gradients, if async_updates is True, the server calls _apply_gradients_immediate() directly rather than buffering. In train_loop_async, workers run a tight loop of pull-compute-push without any iteration tracking or synchronization primitives.

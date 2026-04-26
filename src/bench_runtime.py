@@ -8,6 +8,7 @@ from cluster import build_cluster, teardown_cluster
 from hash_ring import HashRing
 from load_mnist import load_mnist_data
 from config import (
+    BOUNDED_DELAY_STALENESS,
     LEARNING_RATE,
     NUM_WEIGHTS,
     WARMUP_ITERS,
@@ -47,7 +48,11 @@ def run_one_trial(
     y_train,
     warmup_iters=WARMUP_ITERS,
     sync_mode: SyncMode = SyncMode.SEQUENTIAL_BSP,
+    bounded_delay_staleness: int | None = None,
+    steps_per_bound_round: int = 1,
 ):
+    if bounded_delay_staleness is None:
+        bounded_delay_staleness = BOUNDED_DELAY_STALENESS
     _, servers, workers, progress_tracker = build_cluster(
         num_workers=num_workers,
         num_servers=num_servers,
@@ -57,17 +62,29 @@ def run_one_trial(
         X_train=X_train,
         y_train=y_train,
         sync_mode=sync_mode,
+        bounded_delay_staleness=bounded_delay_staleness,
     )
 
-    # timed loop
+    # timed loop: one sample = wall time for all workers to finish the same "round"
+    # (sequential BSP: one global it; bounded delay: run_bounded_session(B) per round where
+    # B=steps_per_bound_round local steps per worker; B=1 matches former behavior).
+    if steps_per_bound_round < 1:
+        raise ValueError("steps_per_bound_round must be >= 1")
+    bound_timeout = ITER_TIMEOUT_S * max(1, steps_per_bound_round)
     iter_times = []
     try:
         for it in range(num_iterations):
             t0 = time.perf_counter()
-            ray.get(
-                [w.run_iteration.remote(it) for w in workers],
-                timeout=ITER_TIMEOUT_S,
-            )
+            if sync_mode == SyncMode.BOUNDED_DELAY:
+                ray.get(
+                    [w.run_bounded_session.remote(steps_per_bound_round) for w in workers],
+                    timeout=bound_timeout,
+                )
+            else:
+                ray.get(
+                    [w.run_iteration.remote(it) for w in workers],
+                    timeout=ITER_TIMEOUT_S,
+                )
             iter_times.append(time.perf_counter() - t0)
     except ray.exceptions.GetTimeoutError:
         print(
@@ -78,6 +95,54 @@ def run_one_trial(
         teardown_cluster(servers, workers, progress_tracker)
 
     return iter_times[warmup_iters:]
+
+
+def run_async_trial(
+    num_workers,
+    num_servers,
+    num_weights,
+    num_iterations,
+    num_replicas,
+    learning_rate,
+    X_train,
+    y_train,
+    warmup_iters=WARMUP_ITERS,
+):
+    """
+    Time asynchronous training: each sample is wall-clock for one "round" where
+    every worker runs train_loop_async(1) (one local step per worker, concurrent).
+    Throughput in rounds/s is comparable in spirit to run_one_trial (one global
+    sync iteration = all workers finish one step).
+    """
+    _, servers, workers, progress_tracker = build_cluster(
+        num_workers=num_workers,
+        num_servers=num_servers,
+        num_weights=num_weights,
+        num_replicas=num_replicas,
+        learning_rate=learning_rate,
+        X_train=X_train,
+        y_train=y_train,
+        sync_mode=SyncMode.ASYNCHRONOUS,
+        bounded_delay_staleness=BOUNDED_DELAY_STALENESS,
+    )
+    step_times: list[float] = []
+    try:
+        for _ in range(num_iterations):
+            t0 = time.perf_counter()
+            ray.get(
+                [w.train_loop_async.remote(1) for w in workers],
+                timeout=ITER_TIMEOUT_S,
+            )
+            step_times.append(time.perf_counter() - t0)
+    except ray.exceptions.GetTimeoutError:
+        print(
+            f"  !! async step {len(step_times)} timed out after "
+            f"{ITER_TIMEOUT_S}s"
+        )
+    finally:
+        teardown_cluster(servers, workers, progress_tracker)
+
+    return step_times[warmup_iters:]
 
 
 def bench_baseline(X_train, y_train):

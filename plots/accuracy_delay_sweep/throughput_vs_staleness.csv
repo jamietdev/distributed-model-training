@@ -1,0 +1,5 @@
+run_label,mode,staleness,mean_iter_s,throughput_its
+s=1,bounded_delay,1,0.023137616798339877,43.21966297202009
+s=2,bounded_delay,2,0.02276516699930653,43.926758807895496
+sequential BSP,sequential_bsp,,0.020588099800806958,48.5717482271387
+asynchronous,asynchronous,,0.020888733200263233,47.87269722930821

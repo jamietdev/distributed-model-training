@@ -38,6 +38,7 @@ def build_cluster(
     y_train,
     sync_mode: SyncMode = SyncMode.SEQUENTIAL_BSP,
     bounded_delay_staleness: int = BOUNDED_DELAY_STALENESS,
+    weight_init_seed: int | None = None,
 ):
     shards = shard_data(X_train, y_train, num_workers)
 
@@ -51,7 +52,8 @@ def build_cluster(
         worker_ids = [f"worker_{i}" for i in range(num_workers)]
         progress_tracker = ProgressTracker.remote(worker_ids, bounded_delay_staleness)
 
-    rng = random.Random(SEED)
+    wseed = SEED if weight_init_seed is None else weight_init_seed
+    rng = random.Random(wseed)
     servers = {}
     for sid in server_ids:
         owned = ring.indices_for_server(sid)

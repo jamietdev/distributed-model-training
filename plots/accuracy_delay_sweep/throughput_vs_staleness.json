@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "metric": "throughput",
+    "num_workers": 6,
+    "num_servers": 2,
+    "num_replicas": 2,
+    "num_weights": 785,
+    "learning_rate": 0.2,
+    "warmup_iters": 1,
+    "timed_iters": 5,
+    "bench_total_iters": 6,
+    "seed": 0,
+    "steps_per_bound_round": 1,
+    "throughput_unit": "B_step_rounds_per_s",
+    "bsp_reference": {
+      "name": "sequential BSP",
+      "mode": "sequential_bsp",
+      "throughput_its": 48.5717482271387,
+      "mean_iter_s": 0.020588099800806958,
+      "num_timed_samples": 5
+    },
+    "async_reference": {
+      "name": "asynchronous",
+      "mode": "asynchronous",
+      "throughput_its": 47.87269722930821,
+      "mean_iter_s": 0.020888733200263233,
+      "num_timed_samples": 5
+    }
+  },
+  "series": [
+    {
+      "name": "s=1",
+      "mode": "bounded_delay",
+      "staleness": 1,
+      "throughput_its": 43.21966297202009,
+      "mean_iter_s": 0.023137616798339877,
+      "num_timed_samples": 5
+    },
+    {
+      "name": "s=2",
+      "mode": "bounded_delay",
+      "staleness": 2,
+      "throughput_its": 43.926758807895496,
+      "mean_iter_s": 0.02276516699930653,
+      "num_timed_samples": 5
+    }
+  ]
+}
