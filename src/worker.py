@@ -32,10 +32,11 @@ class Worker:
         self.sync_mode = sync_mode
         self.progress_tracker = progress_tracker
         self.local_weights = np.zeros(self.num_weights, dtype=np.float32)
-        self.weight_to_server_map = hash_ring.build_weight_map(num_weights)
+        self.weight_to_server_map = hash_ring.build_weight_map()
         self._local_step = 0
 
     def run_iteration(self, iteration_num: int):
+        print(f"[{self.worker_id}] iter={self.current_iteration}")
         self.current_iteration = iteration_num
         if self.progress_tracker is not None:
             ray.get(self.progress_tracker.wait_until_can_advance.remote(self.worker_id))
@@ -75,8 +76,7 @@ class Worker:
 
     def train_loop_async(self, num_steps: int):
         """Independent steps; servers apply gradients immediately (no BSP barrier)."""
-        for step in range(num_steps):
-            self.current_iteration = step
+        for _ in range(num_steps):
             self.pull_weights(wait_for_iteration=False)
             X_batch = self.X_train_batch
             y_batch = self.y_train_batch
@@ -100,7 +100,6 @@ class Worker:
             gradients_dict[i] = gradients[i]
         return gradients_dict
 
-    
     def pull_weights(self, wait_for_iteration: bool | None = None):
         """
         Pulls weights from each server and stores them in local_weights.
@@ -110,32 +109,50 @@ class Worker:
         if wait_for_iteration is None:
             wait_for_iteration = self.sync_mode == SyncMode.SEQUENTIAL_BSP
         servers_and_their_weights = defaultdict(list)
-        for weightIdx, server_id in self.weight_to_server_map.items():
-            servers_and_their_weights[server_id].append(weightIdx)
+        for weight_index, server_id in self.weight_to_server_map.items():
+            servers_and_their_weights[server_id].append(weight_index)
 
         expected = self.current_iteration if wait_for_iteration else None
+        refs = []
         for server_id, weight_indices in servers_and_their_weights.items():
-            weights_ref = self.servers[server_id].pull_weights.remote(
-                weight_indices, expected
+            refs.append(
+                self.servers[server_id].pull_weights.remote(weight_indices, expected)
             )
-            weights_dict: dict[int, float] = ray.get(weights_ref)
-            # store into local_weights
+
+        results = ray.get(refs)
+
+        for weights_dict in results:
             for idx, val in weights_dict.items():
                 self.local_weights[idx] = val
-
-    
+            
     # tells server, here are gradients, please update your weights
     def push_gradients(self, gradients):
         # group gradients by server
         grads_by_server = {}
         for idx, grad in gradients.items():
-            server_id = self.hash_ring.get_server(idx)
+            server_id = self.weight_to_server_map[idx]
             if server_id not in grads_by_server:
                 grads_by_server[server_id] = {}
             grads_by_server[server_id][idx] = grad
 
         # send to servers
+        refs = []
         for server_id, grad_dict in grads_by_server.items():
-            self.servers[server_id].push_gradients.remote(
-                grad_dict, self.worker_id, self.current_iteration
+            iteration = None if self.sync_mode == SyncMode.ASYNCHRONOUS else self.current_iteration
+            refs.append(
+                self.servers[server_id].push_gradients.remote(
+                    grad_dict, self.worker_id, iteration
+                )
             )
+
+        if self.sync_mode != SyncMode.ASYNCHRONOUS:
+            ray.get(refs)
+    
+    def reconfigure(self, ring, servers):
+        self.hash_ring = ring
+        self.servers = dict(servers)
+        # rebuild weight map
+        self.weight_to_server_map = ring.build_weight_map()
+
+    def set_iteration(self, iteration):
+        self.current_iteration = iteration

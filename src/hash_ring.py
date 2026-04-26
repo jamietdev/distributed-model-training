@@ -5,10 +5,10 @@ class HashRing:
     def __init__(self, num_weights, num_virtual_servers=2):
         self.num_virtual_servers = num_virtual_servers
         self.ring = {} # maps position on ring -> server id (which server lives there)
-        self.sorted_keys = [] # todo check
+        self.sorted_keys = []
         self.servers = set() 
         self.num_weights = num_weights
-        # store position -> weights? 
+        self._weight_map = None
 
     def hash(self, key: str) -> int:
         return int(hashlib.md5(key.encode()).hexdigest(), 16) % (2**32)
@@ -20,9 +20,7 @@ class HashRing:
             bisect.insort(self.sorted_keys, position)
 
         self.servers.add(server_id) 
-    
-    # gets the server this weight idx is mapped to
-    import bisect
+        self._weight_map = None
 
     def get_server(self, weight_index: int) -> str:
         if not self.ring:
@@ -38,25 +36,33 @@ class HashRing:
 
         return self.ring[keys[idx]]
     
-    def build_weight_map(self, num_weights: int) -> dict[int, str]:
+    def build_weight_map(self) -> dict[int, str]:
         # returns dict of weight index -> server id for weight indices 0 to num_weights - 1
         # called once at start up 
-        weightMap = {}
-        for i in range(num_weights):
+        weight_map = {}
+        for i in range(self.num_weights):
             server = self.get_server(i)
-            weightMap[i] = server
+            weight_map[i] = server
 
-        return weightMap
+        self._weight_map = weight_map
+        return weight_map
                 
-    def get_weightIdxs_for_specific_server(self, server_id: str):
-        weightMap = self.build_weight_map(self.num_weights)
-        return [k for k, v in weightMap.items() if v == server_id]
+    def indices_for_server(self, server_id: str):
+        if self._weight_map is None:
+            self.build_weight_map()
+        assert self._weight_map is not None
 
-    def weightIdxs_for_all_servers(self, num_weights: int) -> dict[str, list[int]]:
-        weight_map = self.build_weight_map(num_weights)
+        return [k for k, v in self._weight_map.items() if v == server_id]
+
+    def all_server_indices(self) -> dict[str, list[int]]:
+        if self._weight_map is None:
+            self.build_weight_map()
+    
         keys_by_server = {}
+        assert self._weight_map is not None
 
-        for k, server_id in weight_map.items():
+
+        for k, server_id in self._weight_map.items():
             if server_id not in keys_by_server:
                 keys_by_server[server_id] = []
             keys_by_server[server_id].append(k)
@@ -70,5 +76,4 @@ class HashRing:
             self.sorted_keys.remove(position)
 
         self.servers.remove(server_id)
-
-        return
+        self._weight_map = None

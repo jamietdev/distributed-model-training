@@ -300,7 +300,7 @@ def bench_load_balance():
         ring = HashRing(NUM_WEIGHTS, nr)
         for i in range(4):
             ring.add_server(f"server_{i}")
-        by_server = ring.weightIdxs_for_all_servers(NUM_WEIGHTS)
+        by_server = ring.all_server_indices(NUM_WEIGHTS)
         counts = sorted(len(v) for v in by_server.values())
         ideal = NUM_WEIGHTS / 4
         max_deviation = max(abs(c - ideal) for c in counts) / ideal
