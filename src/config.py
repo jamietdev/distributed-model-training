@@ -22,9 +22,6 @@ SYNC_MODE = SyncMode.SEQUENTIAL_BSP
 # (stale reads; no all-worker barrier each step), unlike SEQUENTIAL_BSP. ProgressTracker uses a
 # Ray actor with max_concurrency plus an in-actor lock/condition (see progress_tracker.py).
 BOUNDED_DELAY_STALENESS = 5
-# Placeholder for future "check staleness every k local steps" (looser) modes; only 1 is
-# supported — full per-step ProgressTracker policy is always enforced in code.
-BOUNDED_DELAY_CHECK_EVERY = 1
 
 # for runtime testing
 WARMUP_ITERS = 5  # discarded; first few iters are dominated by JIT/RPC setup
