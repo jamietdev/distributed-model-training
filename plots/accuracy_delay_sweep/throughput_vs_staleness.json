@@ -1,30 +1,30 @@
 {
   "meta": {
     "metric": "throughput",
-    "num_workers": 6,
-    "num_servers": 2,
+    "num_workers": 10,
+    "num_servers": 3,
     "num_replicas": 2,
     "num_weights": 785,
     "learning_rate": 0.2,
-    "warmup_iters": 1,
-    "timed_iters": 5,
-    "bench_total_iters": 6,
+    "warmup_iters": 5,
+    "timed_iters": 30,
+    "bench_total_iters": 35,
     "seed": 0,
     "steps_per_bound_round": 1,
     "throughput_unit": "B_step_rounds_per_s",
     "bsp_reference": {
       "name": "sequential BSP",
       "mode": "sequential_bsp",
-      "throughput_its": 48.5717482271387,
-      "mean_iter_s": 0.020588099800806958,
-      "num_timed_samples": 5
+      "throughput_its": 32.81073287584097,
+      "mean_iter_s": 0.030477831866301132,
+      "num_timed_samples": 30
     },
     "async_reference": {
       "name": "asynchronous",
       "mode": "asynchronous",
-      "throughput_its": 47.87269722930821,
-      "mean_iter_s": 0.020888733200263233,
-      "num_timed_samples": 5
+      "throughput_its": 38.68919286412991,
+      "mean_iter_s": 0.02584701116696427,
+      "num_timed_samples": 30
     }
   },
   "series": [
@@ -32,17 +32,41 @@
       "name": "s=1",
       "mode": "bounded_delay",
       "staleness": 1,
-      "throughput_its": 43.21966297202009,
-      "mean_iter_s": 0.023137616798339877,
-      "num_timed_samples": 5
+      "throughput_its": 31.526755389046425,
+      "mean_iter_s": 0.03171909026665768,
+      "num_timed_samples": 30
     },
     {
       "name": "s=2",
       "mode": "bounded_delay",
       "staleness": 2,
-      "throughput_its": 43.926758807895496,
-      "mean_iter_s": 0.02276516699930653,
-      "num_timed_samples": 5
+      "throughput_its": 32.28637584877911,
+      "mean_iter_s": 0.030972816666811318,
+      "num_timed_samples": 30
+    },
+    {
+      "name": "s=5",
+      "mode": "bounded_delay",
+      "staleness": 5,
+      "throughput_its": 32.40963609030299,
+      "mean_iter_s": 0.030855020933086053,
+      "num_timed_samples": 30
+    },
+    {
+      "name": "s=10",
+      "mode": "bounded_delay",
+      "staleness": 10,
+      "throughput_its": 31.495266732148554,
+      "mean_iter_s": 0.031750802700116765,
+      "num_timed_samples": 30
+    },
+    {
+      "name": "s=20",
+      "mode": "bounded_delay",
+      "staleness": 20,
+      "throughput_its": 27.183321969025954,
+      "mean_iter_s": 0.036787262467017474,
+      "num_timed_samples": 30
     }
   ]
 }

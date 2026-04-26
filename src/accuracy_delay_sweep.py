@@ -473,7 +473,7 @@ def main() -> None:
                 f"Throughput (B={spr} local steps / worker / round; s⁻¹)"
             )
         ax.set_title(
-            "Training throughput vs staleness (ref: BSP & async = 1 step/round; "
+            "Training throughput vs staleness"
             f"bounded delay uses B from --steps-per-round, default 1)"
         )
     else:
